@@ -15,12 +15,23 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Route 1: Extract Text
-app.post('/extract-text', upload.single('resume'), async (req, res) => {
+app.post('/extract-text', upload.single('file'), async (req, res) => {
+    console.log("👉 HIT /extract-text Endpoint");
     try {
-        if (!req.file) return res.json({ success: false });
+        if (!req.file) {
+            console.log("❌ ERROR: No file received. Name mismatch?");
+            return res.json({ success: false, error: "No file" });
+        }
+        console.log("✅ File received:", req.file.originalname);
+
         const data = await pdf(req.file.buffer);
+        console.log("✅ PDF Parsed. Text length:", data.text.length);
+        
         res.json({ success: true, text: data.text });
-    } catch (e) { res.json({ success: false }); }
+    } catch (e) {
+        console.error("🔥 CRASH:", e.message); // This will show us the real error
+        res.json({ success: false, error: e.message });
+    }
 });
 
 // Route 2: Analyze
