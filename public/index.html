@@ -78,7 +78,13 @@
 
         document.getElementById('resumeText').value = "Extracting text...";
 
+       // 1. Define fileInput first!
+        const fileInput = document.getElementById('resumeUpload'); 
+
+        // 2. Create the form data package
         const formData = new FormData();
+
+        // 3. Put the file inside
         formData.append('file', fileInput.files[0]);
 
         try {
