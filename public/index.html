@@ -79,7 +79,7 @@
         document.getElementById('resumeText').value = "Extracting text...";
 
         const formData = new FormData();
-        formData.append('resume', file);
+        formData.append('file', fileInput.files[0]);
 
         try {
             const res = await fetch('/extract-text', { method: 'POST', body: formData });
