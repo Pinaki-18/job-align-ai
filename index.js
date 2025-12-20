@@ -9,7 +9,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 👇 YOUR WORKING KEY
+//KEY
 const API_KEY = "AIzaSyA9_ZWwmzWERzsXIbjXqY9YI0dKNhILgnw"; 
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -28,7 +28,7 @@ app.post('/analyze', async (req, res) => {
     console.log("\n>> REQUEST RECEIVED. Using your specific model...");
     const { resumeText, jobDescription } = req.body;
 
-    // 👇 WE ARE USING A MODEL FROM YOUR LIST 👇
+    //  WE ARE USING A MODEL FROM YOUR LIST 
     const model = "gemini-2.5-flash";
     
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
@@ -66,4 +66,6 @@ app.post('/analyze', async (req, res) => {
     }
 });
 
-app.listen(5000, () => console.log("\n✅ SERVER RUNNING (Custom Model Configured) \n👉 Go to: http://localhost:5000/index.html"));
+// THIS ALLOWS RENDER TO SET THE PORT AUTOMATICALLY
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`\n✅ SERVER RUNNING on port ${PORT}`));
