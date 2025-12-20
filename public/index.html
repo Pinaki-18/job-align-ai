@@ -82,7 +82,7 @@
         formData.append('resume', file);
 
         try {
-            const res = await fetch('http://localhost:5000/extract-text', { method: 'POST', body: formData });
+            const res = await fetch('/extract-text', { method: 'POST', body: formData });
             const data = await res.json();
             document.getElementById('resumeText').value = data.success ? data.text : "Error extracting text.";
         } catch (err) {
