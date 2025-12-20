@@ -10,7 +10,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 //KEY
-const API_KEY = "AIzaSyA9_ZWwmzWERzsXIbjXqY9YI0dKNhILgnw"; 
+const API_KEY = process.env.GEMINI_API_KEY;
 
 const upload = multer({ storage: multer.memoryStorage() });
 
