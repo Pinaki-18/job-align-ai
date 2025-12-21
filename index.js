@@ -4,11 +4,9 @@ const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// --- 🛡️ THE SAFE IMPORT FIX ---
-// We try to import pdf-parse. If it comes as a weird object, we grab .default
-const pdfLib = require('pdf-parse');
-const pdfParse = pdfLib.default || pdfLib; 
-// -----------------------------
+// --- 🟢 THE SIMPLE, WORKING IMPORT ---
+const pdf = require('pdf-parse');
+// -------------------------------------
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -30,23 +28,25 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
             return res.json({ success: false, error: "No file uploaded." });
         }
 
-        console.log("📄 Using pdf-parse engine..."); 
+        console.log("📄 Processing PDF...");
 
-        // Uses the safe 'pdfParse' function we defined at the top
-        const data = await pdfParse(req.file.buffer);
+        // 1. Parse the PDF
+        const data = await pdf(req.file.buffer);
+        
+        // 2. Clean the text
         let extractedText = data.text.trim();
+        console.log(`✅ Success! Found ${extractedText.length} characters.`);
 
-        console.log(`✅ Text Extracted. Length: ${extractedText.length}`);
-
+        // 3. Check for "Empty" PDFs (Images/Scans)
         if (extractedText.length < 50) {
-            extractedText = "⚠️ WARNING: We found almost no text. This might be an image-based PDF.";
+            extractedText = "⚠️ WARNING: This PDF seems to be an image or empty. Please use a standard text-based PDF.";
         }
 
         res.json({ success: true, text: extractedText });
 
     } catch (error) {
         console.error("🔥 PDF Error:", error);
-        res.status(500).json({ success: false, error: "PDF Parsing failed: " + error.message });
+        res.status(500).json({ success: false, error: "Server Error: " + error.message });
     }
 });
 
