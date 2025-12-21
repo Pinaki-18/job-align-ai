@@ -1,82 +1,90 @@
 const express = require('express');
-const cors = require('cors');
 const multer = require('multer');
-const pdf = require('pdf-extraction');
-const path = require('path');
+const pdf = require('pdf-parse');
+const cors = require('cors');
+require('dotenv').config();
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
-app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+const port = process.env.PORT || 10000;
 
-//KEY
-const API_KEY = process.env.GEMINI_API_KEY;
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public')); // Serve your frontend files automatically
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Configure Multer to keep files in memory (RAM)
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
-// Route 1: Extract Text
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// --- ROUTE 1: EXTRACT TEXT FROM PDF ---
 app.post('/extract-text', upload.single('file'), async (req, res) => {
     console.log("👉 HIT /extract-text Endpoint");
+    
     try {
         if (!req.file) {
-            console.log("❌ ERROR: No file received. Name mismatch?");
-            return res.json({ success: false, error: "No file" });
+            console.log("❌ No file received");
+            return res.json({ success: false, error: "No file uploaded." });
         }
+
         console.log("✅ File received:", req.file.originalname);
 
+        // Parse the PDF
         const data = await pdf(req.file.buffer);
-        console.log("✅ PDF Parsed. Text length:", data.text.length);
-        
-        res.json({ success: true, text: data.text });
-    } catch (e) {
-        console.error("🔥 CRASH:", e.message); // This will show us the real error
-        res.json({ success: false, error: e.message });
-    }
-});
+        let extractedText = data.text.trim();
 
-// Route 2: Analyze
-app.post('/analyze', async (req, res) => {
-    console.log("\n>> REQUEST RECEIVED. Using your specific model...");
-    const { resumeText, jobDescription } = req.body;
+        console.log(`✅ PDF Parsed. Text length: ${extractedText.length}`);
 
-    //  WE ARE USING A MODEL FROM YOUR LIST 
-    const model = "gemini-2.5-flash";
-    
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ text: `
-                        You are an ATS. Return JSON Only.
-                        Compare Resume to JD.
-                        Resume: ${resumeText.substring(0, 3000)}
-                        JD: ${jobDescription.substring(0, 3000)}
-                        Format: { "match_score": 85, "summary": "...", "missing_keywords": [] }
-                    `}]
-                }]
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.error) {
-            console.error(`❌ ERROR: ${data.error.message}`);
-            throw new Error(data.error.message);
+        // INTELLIGENT CHECK: If text is too short, warn the user
+        if (extractedText.length < 50) {
+            extractedText = "⚠️ WARNING: We found almost no text in this PDF. It might be a scanned image or a photo-based resume. Please use a standard text PDF.";
         }
-        
-        const text = data.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
-        console.log(">> SUCCESS: AI Responded!");
-        res.json({ success: true, analysis: JSON.parse(text) });
 
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, text: extractedText });
+
+    } catch (error) {
+        console.error("🔥 CRASH:", error.message);
+        res.status(500).json({ success: false, error: "Server Error: " + error.message });
     }
 });
 
-// THIS ALLOWS RENDER TO SET THE PORT AUTOMATICALLY
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`\n✅ SERVER RUNNING on port ${PORT}`));
+// --- ROUTE 2: ANALYZE RESUME WITH AI ---
+app.post('/analyze', async (req, res) => {
+    try {
+        const { resumeText, jobDescription } = req.body;
+
+        if (!resumeText || !jobDescription) {
+            return res.json({ error: "Please provide both Resume text and Job Description." });
+        }
+
+        const prompt = `
+        Act as a strict hiring manager.
+        RESUME: "${resumeText.substring(0, 3000)}"
+        JOB DESCRIPTION: "${jobDescription.substring(0, 3000)}"
+
+        Task:
+        1. Give a Match Score out of 100%.
+        2. List 3 key missing keywords or skills from the resume.
+        3. Provide 2 specific improvements.
+        `;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const analysis = response.text();
+
+        res.json({ analysis });
+
+    } catch (error) {
+        console.error("AI Error:", error);
+        res.status(500).json({ error: "AI Analysis failed. Try again." });
+    }
+});
+
+// Start Server
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+});
