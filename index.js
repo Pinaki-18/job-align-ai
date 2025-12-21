@@ -1,14 +1,19 @@
 const express = require('express');
 const multer = require('multer');
-const pdfParse = require('pdf-parse'); // Renamed to avoid errors
 const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// --- 🛑 THE FIX IS HERE 🛑 ---
+// We import the library as a generic object first
+const pdfLib = require('pdf-parse');
+// Then we check: Is the function inside .default? If yes, grab it. If no, use the object.
+const pdfParse = pdfLib.default || pdfLib; 
+// -----------------------------
+
 const app = express();
 const port = process.env.PORT || 10000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public')); 
@@ -19,37 +24,34 @@ const upload = multer({ storage: storage });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// --- ROUTE 1: EXTRACT TEXT FROM PDF ---
+// --- ROUTE 1: EXTRACT TEXT ---
 app.post('/extract-text', upload.single('file'), async (req, res) => {
-    console.log("👉 HIT /extract-text Endpoint");
-    
     try {
         if (!req.file) {
-            console.log("❌ No file received");
             return res.json({ success: false, error: "No file uploaded." });
         }
 
-        console.log("✅ File received:", req.file.originalname);
+        console.log("📄 PDF Library Type:", typeof pdfParse); // This log will prove it's fixed
 
-        // USE THE RENAMED TOOL HERE:
+        // Now we can safely call it because we fixed the import above
         const data = await pdfParse(req.file.buffer);
-        
         let extractedText = data.text.trim();
-        console.log(`✅ PDF Parsed. Text length: ${extractedText.length}`);
+
+        console.log(`✅ Text Extracted. Length: ${extractedText.length}`);
 
         if (extractedText.length < 50) {
-            extractedText = "⚠️ WARNING: We found almost no text in this PDF. It might be a scanned image or a photo-based resume. Please use a standard text PDF.";
+            extractedText = "⚠️ WARNING: We found almost no text. This might be an image-based PDF.";
         }
 
         res.json({ success: true, text: extractedText });
 
     } catch (error) {
-        console.error("🔥 CRASH:", error.message);
-        res.status(500).json({ success: false, error: "Server Error: " + error.message });
+        console.error("🔥 PDF Error:", error);
+        res.status(500).json({ success: false, error: "PDF Parsing failed: " + error.message });
     }
 });
 
-// --- ROUTE 2: ANALYZE RESUME WITH AI ---
+// --- ROUTE 2: ANALYZE ---
 app.post('/analyze', async (req, res) => {
     try {
         const { resumeText, jobDescription } = req.body;
