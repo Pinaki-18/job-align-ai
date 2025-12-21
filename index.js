@@ -4,9 +4,9 @@ const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// --- 🟢 THE SIMPLE, WORKING IMPORT ---
-const pdf = require('pdf-parse');
-// -------------------------------------
+// --- 🟢 USING THE RELIABLE ENGINE (pdf-extraction) ---
+const pdf = require('pdf-extraction'); 
+// -----------------------------------------------------
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -28,16 +28,14 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
             return res.json({ success: false, error: "No file uploaded." });
         }
 
-        console.log("📄 Processing PDF...");
+        console.log("📄 Processing PDF with pdf-extraction...");
 
-        // 1. Parse the PDF
+        // This works because pdf-extraction is installed and stable
         const data = await pdf(req.file.buffer);
         
-        // 2. Clean the text
         let extractedText = data.text.trim();
         console.log(`✅ Success! Found ${extractedText.length} characters.`);
 
-        // 3. Check for "Empty" PDFs (Images/Scans)
         if (extractedText.length < 50) {
             extractedText = "⚠️ WARNING: This PDF seems to be an image or empty. Please use a standard text-based PDF.";
         }
