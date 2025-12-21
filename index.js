@@ -2,19 +2,17 @@ const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
 const pdf = require("pdf-extraction");
-require("dotenv").config();
-
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const port = process.env.PORT || 10000;
 
-// ================== MIDDLEWARE ==================
+// ---------------- MIDDLEWARE ----------------
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// ================== MULTER ==================
+// ---------------- MULTER ----------------
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -22,19 +20,19 @@ const upload = multer({
       return cb(new Error("Only PDF files allowed"));
     }
     cb(null, true);
-  }
+  },
 });
 
-// ================== GEMINI INIT ==================
+// ---------------- GEMINI INIT ----------------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ================== ROUTE 1: EXTRACT PDF ==================
+// ---------------- ROUTE 1: PDF EXTRACTION ----------------
 app.post("/extract-text", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.json({
         success: false,
-        error: "No file received. Field name must be 'file'."
+        error: "No file received. Field name must be 'file'.",
       });
     }
 
@@ -44,38 +42,32 @@ app.post("/extract-text", upload.single("file"), async (req, res) => {
     if (!text || text.length < 50) {
       return res.json({
         success: false,
-        error: "PDF has no readable text (scanned PDF)."
+        error: "PDF has no readable text (possibly scanned).",
       });
     }
 
-    res.json({
-      success: true,
-      text
-    });
-
+    res.json({ success: true, text });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.json({ success: false, error: err.message });
   }
 });
 
-// ================== ROUTE 2: ANALYZE ==================
+// ---------------- ROUTE 2: ANALYZE ----------------
 app.post("/analyze", async (req, res) => {
   try {
     const { resumeText, jobDescription } = req.body;
 
     if (!resumeText || !jobDescription) {
       return res.json({
-        analysis: "Resume and Job Description required."
+        analysis: "Resume and Job Description required.",
       });
     }
 
     console.log("Gemini key exists:", !!process.env.GEMINI_API_KEY);
 
+    // ✅ THIS MODEL WORKS
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash" // ✅ CORRECT MODEL
+      model: "gemini-1.0-pro",
     });
 
     const prompt = `
@@ -87,33 +79,26 @@ ${resumeText.substring(0, 2500)}
 JOB DESCRIPTION:
 ${jobDescription.substring(0, 2500)}
 
-Provide:
-1. Match score (0–100)
-2. 3 missing keywords
-3. 2 resume improvement suggestions
+Give:
+1) Match score (0–100)
+2) 3 missing keywords
+3) 2 resume improvements
 `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
 
-    res.json({
-      analysis: response.text()
-    });
-
+    res.json({ analysis: response.text() });
   } catch (err) {
-    console.error("Gemini Error:", err.message);
+    console.error("Gemini error:", err.message);
     res.json({
-      analysis: `Gemini error: ${err.message}`
+      analysis: `Gemini error: ${err.message}`,
     });
   }
 });
 
-// ================== HEALTH CHECK ==================
-app.get("/", (req, res) => {
-  res.send("JobAlign AI is running ✅");
+// ---------------- START SERVER ----------------
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
 });
 
-// ================== START SERVER ==================
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
