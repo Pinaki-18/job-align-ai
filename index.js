@@ -4,10 +4,11 @@ const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// --- 🔄 SWITCHING TO PDF-EXTRACTION ---
-// We are using this because pdf-parse was behaving like an object
-const pdf = require('pdf-extraction'); 
-// --------------------------------------
+// --- 🛡️ THE SAFE IMPORT FIX ---
+// We try to import pdf-parse. If it comes as a weird object, we grab .default
+const pdfLib = require('pdf-parse');
+const pdfParse = pdfLib.default || pdfLib; 
+// -----------------------------
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -29,10 +30,10 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
             return res.json({ success: false, error: "No file uploaded." });
         }
 
-        console.log("📄 Using pdf-extraction..."); 
+        console.log("📄 Using pdf-parse engine..."); 
 
-        // Uses the same command, but with the new library
-        const data = await pdf(req.file.buffer);
+        // Uses the safe 'pdfParse' function we defined at the top
+        const data = await pdfParse(req.file.buffer);
         let extractedText = data.text.trim();
 
         console.log(`✅ Text Extracted. Length: ${extractedText.length}`);
