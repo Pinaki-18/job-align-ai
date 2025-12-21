@@ -4,12 +4,10 @@ const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// --- 🛑 THE FIX IS HERE 🛑 ---
-// We import the library as a generic object first
-const pdfLib = require('pdf-parse');
-// Then we check: Is the function inside .default? If yes, grab it. If no, use the object.
-const pdfParse = pdfLib.default || pdfLib; 
-// -----------------------------
+// --- 🔄 SWITCHING TO PDF-EXTRACTION ---
+// We are using this because pdf-parse was behaving like an object
+const pdf = require('pdf-extraction'); 
+// --------------------------------------
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -31,10 +29,10 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
             return res.json({ success: false, error: "No file uploaded." });
         }
 
-        console.log("📄 PDF Library Type:", typeof pdfParse); // This log will prove it's fixed
+        console.log("📄 Using pdf-extraction..."); 
 
-        // Now we can safely call it because we fixed the import above
-        const data = await pdfParse(req.file.buffer);
+        // Uses the same command, but with the new library
+        const data = await pdf(req.file.buffer);
         let extractedText = data.text.trim();
 
         console.log(`✅ Text Extracted. Length: ${extractedText.length}`);
