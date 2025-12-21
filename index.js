@@ -15,10 +15,13 @@ app.use(express.static('public'));
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Initialize AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// We use the standard, most reliable model for free accounts
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// 1. TRIM THE KEY (Removes accidental spaces from copy-pasting)
+const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
+const genAI = new GoogleGenerativeAI(apiKey);
+
+// 2. USE THE PINNED VERSION (Fixes the 404 Error)
+// 'gemini-1.5-flash' is an alias. 'gemini-1.5-flash-001' is the specific version.
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
 
 // --- ROUTE 1: EXTRACT TEXT ---
 app.post('/extract-text', upload.single('file'), async (req, res) => {
@@ -65,9 +68,8 @@ app.post('/analyze', async (req, res) => {
 
     } catch (error) {
         console.error("🔥 AI Error:", error);
-        // This will now show the REAL error from the correct model
         return res.json({ 
-            analysis: `❌ API ERROR: ${error.message}\n\n(If this says '404', your API Key is valid but the API Service is disabled in Google Cloud.)` 
+            analysis: `❌ API ERROR: ${error.message}\n\n(If this persists, your API Key might be for a Project that doesn't have the 'Generative Language API' enabled. Check console.cloud.google.com)` 
         });
     }
 });
