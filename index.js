@@ -3,11 +3,7 @@ const multer = require('multer');
 const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-// --- 🟢 WORKING ENGINE: pdf-extraction ---
-// We use this because your logs PROVED it works (Found 816 chars)
-const pdf = require('pdf-extraction'); 
-// -----------------------------------------
+const pdf = require('pdf-extraction');
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -19,9 +15,12 @@ app.use(express.static('public'));
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// Initialize AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// We use the standard, most reliable model for free accounts
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// --- ROUTE 1: EXTRACT TEXT (Proven to Work) ---
+// --- ROUTE 1: EXTRACT TEXT ---
 app.post('/extract-text', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.json({ success: false, error: "No file uploaded." });
@@ -31,19 +30,14 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
         let extractedText = data.text.trim();
         
         console.log(`✅ PDF Success! Found ${extractedText.length} characters.`);
-
-        if (extractedText.length < 50) {
-            extractedText = "⚠️ WARNING: This PDF seems empty or is a scanned image. Please use a text-based PDF.";
-        }
         res.json({ success: true, text: extractedText });
 
     } catch (error) {
-        console.error("PDF Error:", error);
         res.status(500).json({ success: false, error: "PDF Error: " + error.message });
     }
 });
 
-// --- ROUTE 2: ANALYZE (With Auto-Backup) ---
+// --- ROUTE 2: ANALYZE ---
 app.post('/analyze', async (req, res) => {
     const { resumeText, jobDescription } = req.body;
     if (!resumeText || !jobDescription) return res.json({ analysis: "⚠️ Please provide both Resume and Job Description." });
@@ -62,29 +56,19 @@ app.post('/analyze', async (req, res) => {
     `;
 
     try {
-        // STRATEGY 1: Try standard Flash model
-        const modelFlash = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await modelFlash.generateContent(prompt);
+        const result = await model.generateContent(prompt);
         const response = await result.response;
-        return res.json({ analysis: response.text() });
-
-    } catch (err1) {
-        console.log("⚠️ Flash failed, switching to Backup (Gemini Pro)...");
+        const text = response.text();
         
-        try {
-            // STRATEGY 2: Backup with Gemini Pro
-            const modelPro = genAI.getGenerativeModel({ model: "gemini-pro" });
-            const result = await modelPro.generateContent(prompt);
-            const response = await result.response;
-            return res.json({ analysis: response.text() });
+        console.log("✅ AI Success!");
+        res.json({ analysis: text });
 
-        } catch (err2) {
-            console.error("🔥 All Models Failed:", err2.message);
-            // SEND ERROR TO FRONTEND SO YOU CAN SEE IT
-            return res.json({ 
-                analysis: `❌ API ERROR: Your API Key is invalid or has no credits.\n\nTechnical Details: ${err2.message}\n\nPlease get a new key from aistudio.google.com.` 
-            });
-        }
+    } catch (error) {
+        console.error("🔥 AI Error:", error);
+        // This will now show the REAL error from the correct model
+        return res.json({ 
+            analysis: `❌ API ERROR: ${error.message}\n\n(If this says '404', your API Key is valid but the API Service is disabled in Google Cloud.)` 
+        });
     }
 });
 
