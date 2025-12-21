@@ -18,8 +18,14 @@ app.use(express.static('public'));
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// ... imports above ...
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// 🔄 UPDATED MODEL NAME HERE:
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" }); 
+
+// ... rest of code ...
 
 // --- ROUTE 1: EXTRACT TEXT ---
 app.post('/extract-text', upload.single('file'), async (req, res) => {
