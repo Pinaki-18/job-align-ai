@@ -1,88 +1,134 @@
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-// --- 🟢 WORKING ENGINE: pdf-extraction ---
-// Your logs confirmed this works perfectly (Found 816 chars)
-const pdf = require('pdf-extraction'); 
-// -----------------------------------------
+const express = require("express");
+const multer = require("multer");
+const cors = require("cors");
+const pdf = require("pdf-extraction");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
+/* ------------------ MIDDLEWARE ------------------ */
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public')); 
+app.use(express.static("public"));
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+/* ------------------ MULTER SETUP ------------------ */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== "application/pdf") {
+      return cb(new Error("Only PDF files allowed"));
+    }
+    cb(null, true);
+  },
+});
 
+/* ------------------ GEMINI INIT ------------------ */
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// --- ROUTE 1: EXTRACT TEXT (Proven to Work) ---
-app.post('/extract-text', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) return res.json({ success: false, error: "No file uploaded." });
-        
-        console.log("📄 Processing PDF...");
-        const data = await pdf(req.file.buffer);
-        let extractedText = data.text.trim();
-        
-        console.log(`✅ PDF Success! Found ${extractedText.length} characters.`);
+/* =================================================
+   ROUTE 1: PDF TEXT EXTRACTION
+   ================================================= */
+app.post("/extract-text", upload.single("file"), async (req, res) => {
+  try {
+    console.log("📥 File received:", req.file?.originalname);
 
-        if (extractedText.length < 50) {
-            extractedText = "⚠️ WARNING: This PDF seems empty. Please use a standard text PDF.";
-        }
-        res.json({ success: true, text: extractedText });
-
-    } catch (error) {
-        res.status(500).json({ success: false, error: "PDF Error: " + error.message });
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file received. Field name must be 'file'.",
+      });
     }
+
+    const data = await pdf(req.file.buffer);
+    const text = data.text?.trim();
+
+    console.log("✅ Extracted chars:", text?.length || 0);
+
+    if (!text || text.length < 50) {
+      return res.json({
+        success: false,
+        error: "PDF has no readable text (likely scanned).",
+      });
+    }
+
+    res.json({
+      success: true,
+      text,
+    });
+  } catch (err) {
+    console.error("🔥 PDF ERROR:", err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
 });
 
-// --- ROUTE 2: ANALYZE (With Auto-Backup) ---
-app.post('/analyze', async (req, res) => {
+/* =================================================
+   ROUTE 2: RESUME vs JD ANALYSIS (GEMINI)
+   ================================================= */
+app.post("/analyze", async (req, res) => {
+  try {
     const { resumeText, jobDescription } = req.body;
-    if (!resumeText || !jobDescription) return res.json({ analysis: "⚠️ Please provide both Resume and Job Description." });
 
-    console.log("🧠 Attempting AI Analysis...");
-    
-    const prompt = `
-    Act as a strict hiring manager.
-    RESUME: "${resumeText.substring(0, 3000)}"
-    JOB DESCRIPTION: "${jobDescription.substring(0, 3000)}"
-    Task: Match Score (0-100%), 3 missing keywords, 2 improvements.
-    `;
-
-    try {
-        // STRATEGY 1: Try the standard Flash model
-        const modelFlash = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await modelFlash.generateContent(prompt);
-        const response = await result.response;
-        return res.json({ analysis: response.text() });
-
-    } catch (err1) {
-        console.log("⚠️ Flash failed, switching to Backup (Gemini Pro)...");
-        
-        try {
-            // STRATEGY 2: Backup with Gemini Pro (Old Faithful)
-            const modelPro = genAI.getGenerativeModel({ model: "gemini-pro" });
-            const result = await modelPro.generateContent(prompt);
-            const response = await result.response;
-            return res.json({ analysis: response.text() });
-
-        } catch (err2) {
-            console.error("🔥 All Models Failed:", err2.message);
-            // CRITICAL: Send the error to the user's screen so they see it!
-            return res.json({ 
-                analysis: `❌ API ERROR:\n${err2.message}\n\nPlease check that your Google Gemini API Key is valid and has credits.` 
-            });
-        }
+    if (!resumeText || !jobDescription) {
+      return res.json({
+        analysis: "Resume text and Job Description are required.",
+      });
     }
+
+    console.log("🧠 Gemini key exists:", !!process.env.GEMINI_API_KEY);
+
+    const model = genAI.getGenerativeModel({
+      model: "models/gemini-1.5-flash",
+    });
+
+    const prompt = `
+Act as a strict hiring manager.
+
+RESUME:
+${resumeText.substring(0, 2500)}
+
+JOB DESCRIPTION:
+${jobDescription.substring(0, 2500)}
+
+Provide:
+1) Match score (0–100%)
+2) 3 missing keywords
+3) 2 concrete improvements
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+
+    res.json({
+      analysis: response.text(),
+    });
+  } catch (err) {
+    console.error("🔥 GEMINI ERROR:", err.message);
+    res.json({
+      analysis: `Gemini error: ${err.message}`,
+    });
+  }
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+/* =================================================
+   TEST ROUTE (OPTIONAL – FOR DEBUGGING)
+   ================================================= */
+app.get("/test-gemini", async (req, res) => {
+  try {
+    const model = genAI.getGenerativeModel({
+      model: "models/gemini-1.5-flash",
+    });
+    const result = await model.generateContent("Say OK");
+    res.send(result.response.text());
+  } catch (e) {
+    res.send(e.message);
+  }
+});
+
+/* ------------------ SERVER ------------------ */
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });

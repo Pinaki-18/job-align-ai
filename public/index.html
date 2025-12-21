@@ -1,115 +1,66 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JobAlign AI - Resume Matcher</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: white; padding: 20px; }
-        .container { max-width: 900px; margin: auto; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-        .card { background: #1e1e1e; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        textarea { width: 100%; height: 300px; background: #252525; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 10px; resize: none; margin-top: 10px; box-sizing: border-box; }
-        label { font-weight: bold; color: #00adb5; }
-        .upload-section { margin-bottom: 20px; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 2px dashed #00adb5; text-align: center; }
-        button { background-color: #00adb5; color: white; border: none; padding: 12px 25px; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 20px; width: 100%; transition: 0.3s; }
-        button:hover { background-color: #007a80; }
-        #result { margin-top: 20px; padding: 15px; background: #252525; border-radius: 8px; border-left: 5px solid #00adb5; line-height: 1.6; }
-    </style>
+  <title>JobAlign AI</title>
 </head>
-<body>
+<body style="background:#111;color:#0ff;font-family:sans-serif">
 
-<div class="container">
-    <h1>🚀 JobAlign AI</h1>
-    <p>Upload your resume and paste a Job Description to check your match.</p>
+<h2>Upload Resume (PDF)</h2>
 
-    <div class="upload-section">
-        <label for="resumeUpload">📁 Step 1: Upload Resume (PDF)</label><br><br>
-        <input type="file" id="resumeUpload" accept=".pdf" style="color: white;">
-    </div>
+<input type="file" id="resume" accept="application/pdf" />
+<button onclick="uploadResume()">Extract Text</button>
 
-    <div class="grid">
-        <div class="card">
-            <label>1. Resume Text (Extracted Automatically)</label>
-            <textarea id="resumeText" placeholder="Your resume text will appear here after upload..."></textarea>
-        </div>
-        <div class="card">
-            <label>2. Job Description</label>
-            <textarea id="jobDescription" placeholder="Paste the Job Description (JD) here..."></textarea>
-        </div>
-    </div>
+<h3>Extracted Resume Text</h3>
+<textarea id="resumeText" rows="10" cols="80"></textarea>
 
-    <button onclick="analyzeResume()">Step 2: Analyze Match Score</button>
+<h3>Job Description</h3>
+<textarea id="jd" rows="6" cols="80"></textarea>
 
-    <div id="result">Match results will appear here...</div>
-</div>
+<br><br>
+<button onclick="analyze()">Analyze Match</button>
+
+<h3>Analysis</h3>
+<pre id="result"></pre>
 
 <script>
-    // --- PART 1: AUTO-EXTRACT PDF TEXT ---
-    document.getElementById('resumeUpload').addEventListener('change', async (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
+async function uploadResume() {
+  const fileInput = document.getElementById("resume");
+  if (!fileInput.files.length) {
+    alert("Select a PDF first");
+    return;
+  }
 
-        // Visual feedback for the user
-        const resumeBox = document.getElementById('resumeText');
-        resumeBox.value = "⏳ Extracting text from PDF... Please wait...";
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]); // 🔥 MUST BE "file"
 
-        const formData = new FormData();
-        formData.append('file', file); // Field name 'file' matches backend upload.single('file')
+  const res = await fetch("/extract-text", {
+    method: "POST",
+    body: formData
+  });
 
-        try {
-            const res = await fetch('/extract-text', {
-                method: 'POST',
-                body: formData
-            });
+  const data = await res.json();
 
-            const data = await res.json();
+  if (!data.success) {
+    alert(data.error);
+    return;
+  }
 
-            if (data.success) {
-                resumeBox.value = data.text;
-                console.log("✅ Text extracted successfully");
-            } else {
-                resumeBox.value = "❌ Error: " + (data.error || "Could not read PDF file.");
-            }
-        } catch (err) {
-            console.error("Fetch Error:", err);
-            resumeBox.value = "⚠️ Connection Failed. Ensure your Render server is live.";
-        }
-    });
+  document.getElementById("resumeText").value = data.text;
+}
 
-    // --- PART 2: ANALYZE WITH AI ---
-    async function analyzeResume() {
-        const resumeText = document.getElementById('resumeText').value;
-        const jdText = document.getElementById('jobDescription').value;
-        const resultDiv = document.getElementById('result');
+async function analyze() {
+  const resumeText = document.getElementById("resumeText").value;
+  const jobDescription = document.getElementById("jd").value;
 
-        if (!resumeText || resumeText.startsWith("⏳") || !jdText) {
-            alert("Please ensure both Resume text and Job Description are provided.");
-            return;
-        }
+  const res = await fetch("/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resumeText, jobDescription })
+  });
 
-        resultDiv.innerHTML = "🧠 AI is analyzing your match... Please wait...";
-
-        try {
-            const response = await fetch('/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ resumeText, jobDescription: jdText })
-            });
-
-            const data = await response.json();
-            
-            if (data.analysis) {
-                // Use innerHTML in case the AI returns formatted markdown or breaks
-                resultDiv.innerHTML = "<h3>Analysis Result:</h3>" + data.analysis.replace(/\n/g, "<br>");
-            } else {
-                resultDiv.innerHTML = "❌ AI could not provide an analysis. Try again.";
-            }
-        } catch (error) {
-            console.error("Analysis Error:", error);
-            resultDiv.innerHTML = "⚠️ Error connecting to AI server.";
-        }
-    }
+  const data = await res.json();
+  document.getElementById("result").innerText = data.analysis;
+}
 </script>
 
 </body>
