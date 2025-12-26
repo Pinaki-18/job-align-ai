@@ -20,7 +20,8 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
-      const res = await axios.post('http://localhost:5000/analyze', formData);
+      // Make sure this is 5001!
+const res = await axios.post('http://localhost:5001/analyze', formData);
       setResult(res.data);
     } catch (error) {
       console.error(error);
