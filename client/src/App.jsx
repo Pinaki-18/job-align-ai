@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import './App.css'; // Make sure this file exists, or remove this line if not using it
+import axios from 'axios';
+import './App.css'; // We will add some simple styles below
 
 function App() {
   const [file, setFile] = useState(null);
@@ -7,95 +8,88 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
-
-  const handleAnalyze = async () => {
+  const handleUpload = async () => {
     if (!file || !jobDesc) {
-      alert("Please upload a resume and paste a job description!");
+      alert("Please select a file and paste the Job Description");
       return;
     }
 
     setLoading(true);
-    setResult(null);
-
     const formData = new FormData();
     formData.append('resume', file);
     formData.append('jobDesc', jobDesc);
 
     try {
-      // 1. Send data to your backend server
-      const response = await fetch('http://localhost:5000/analyze', {
-        method: 'POST',
-        body: formData,
-      });
-
-      // 2. Get the JSON response
-      const data = await response.json();
-
-      if (response.ok) {
-        setResult(data);
-      } else {
-        alert("Error analyzing: " + data.error);
-      }
+      const res = await axios.post('http://localhost:5000/analyze', formData);
+      setResult(res.data);
     } catch (error) {
-      console.error("Error:", error);
-      alert("Failed to connect to the server.");
-    } finally {
-      setLoading(false);
+      console.error(error);
+      alert("Analysis failed. Check console.");
     }
+    setLoading(false);
   };
 
   return (
-    <div className="app-container">
-      <div className="card">
-        <h1>🚀 JobAlign AI</h1>
-        <p className="subtitle">Optimize your resume for any job description using Google Gemini.</p>
+    <div className="container">
+      <h1>🚀 JobAlign AI</h1>
+      <p className="subtitle">Optimize your resume for the ATS</p>
 
-        <div className="input-group">
-          <label>1. Upload Resume (PDF)</label>
-          <input type="file" accept=".pdf" onChange={handleFileChange} />
-        </div>
-
-        <div className="input-group">
-          <label>2. Paste Job Description</label>
-          <textarea 
-            rows="6" 
-            placeholder="Paste the JD here..." 
-            value={jobDesc}
-            onChange={(e) => setJobDesc(e.target.value)}
-          />
-        </div>
-
-        <button onClick={handleAnalyze} disabled={loading} className="analyze-btn">
-          {loading ? "Analyzing... ⏳" : "Analyze Match Score ⚡"}
+      {/* INPUT SECTION */}
+      <div className="input-group">
+        <textarea 
+          placeholder="Paste Job Description here..." 
+          value={jobDesc}
+          onChange={(e) => setJobDesc(e.target.value)}
+          rows="4"
+        />
+        <input 
+          type="file" 
+          accept=".pdf"
+          onChange={(e) => setFile(e.target.files[0])} 
+        />
+        <button onClick={handleUpload} disabled={loading} className="analyze-btn">
+          {loading ? "Analyzing..." : "Analyze Match"}
         </button>
+      </div>
 
-        {/* Display Results */}
-        {result && (
-          <div className="result-section">
-            <div className="score-circle">
-              <span>{result.matchScore}%</span>
-              <p>Match</p>
+      {/* RESULTS SECTION */}
+      {result && (
+        <div className="result-card">
+          <div className="score-section">
+            <div className="score-circle" style={{
+              background: `conic-gradient(${getScoreColor(result.matchScore)} ${result.matchScore * 3.6}deg, #e0e0e0 0deg)`
+            }}>
+              <span className="score-text">{result.matchScore}%</span>
             </div>
-            
-            <div className="feedback">
-              <h3>📝 Feedback Summary</h3>
+            <h3>Match Score</h3>
+          </div>
+
+          <div className="details-section">
+            <div className="summary-box">
+              <h4>📝 AI Summary</h4>
               <p>{result.summary}</p>
-              
-              <h3>⚠️ Missing Keywords</h3>
+            </div>
+
+            <div className="keywords-box">
+              <h4>⚠️ Missing Keywords</h4>
               <div className="tags">
                 {result.missingKeywords.map((keyword, index) => (
-                  <span key={index} className="tag">{keyword}</span>
+                  <span key={index} className="tag missing">{keyword}</span>
                 ))}
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// Helper to change color based on score
+function getScoreColor(score) {
+  if (score >= 80) return "#4caf50"; // Green
+  if (score >= 50) return "#ff9800"; // Orange
+  return "#f44336"; // Red
 }
 
 export default App;
