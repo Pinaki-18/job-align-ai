@@ -42,13 +42,14 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
-        // --- STRICT PROMPT ---
+        // --- STRICT JSON ONLY PROMPT ---
         const prompt = `
-            Act as a data API. 
+            Act as a strict data API. 
             JD: "${jobDescription}"
             Resume: "${resumeText}"
             
-            Return JSON ONLY. No text. No markdown.
+            CRITICAL: Return ONLY valid JSON. Do not speak. Do not write "Here is the JSON".
+            
             Structure:
             {
                 "matchScore": 85,
@@ -60,15 +61,17 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const result = await model.generateContent(prompt);
         let text = result.response.text();
         
-        // --- SAFETY CLEANER ---
-        // This removes the "Okay, here is the analysis..." text if the AI adds it
+        // --- CLEANER: Remove markdown if present ---
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        // --- SAFETY: Find the JSON object ---
         const firstBracket = text.indexOf('{');
         const lastBracket = text.lastIndexOf('}');
         if (firstBracket !== -1 && lastBracket !== -1) {
             text = text.substring(firstBracket, lastBracket + 1);
         }
         
-        console.log("Cleaned JSON:", text); // Check your terminal
+        console.log("FINAL JSON:", text); // Check your terminal for this!
         
         res.json(JSON.parse(text));
 
