@@ -4,9 +4,17 @@ const multer = require('multer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// --- BULLETPROOF PDF PARSER ---
-let pdfLibrary = require('pdf-parse');
+const app = express();
+const port = 5000;
 
+app.use(cors());
+app.use(express.json());
+
+const upload = multer({ storage: multer.memoryStorage() });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// --- PDF PARSER (Bulletproof Version) ---
+let pdfLibrary = require('pdf-parse');
 async function parsePDF(buffer) {
     try {
         if (typeof pdfLibrary === 'function') return await pdfLibrary(buffer);
@@ -18,21 +26,10 @@ async function parsePDF(buffer) {
              const Parser = pdfLibrary;
              return new Parser(buffer);
         }
-        throw err;
+        return { text: "" }; // Fail silently if parsing breaks
     }
 }
-// ------------------------------
-
-const app = express();
-const port = 5000;
-
-app.use(cors());
-app.use(express.json());
-
-const upload = multer({ storage: multer.memoryStorage() });
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-app.get('/', (req, res) => res.send('Server is running.'));
+// ----------------------------------------
 
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
@@ -41,43 +38,40 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         if (!file || !jobDescription) return res.status(400).json({ error: "Missing data" });
 
-        // 1. Parse PDF
-        let resumeText = "";
-        try {
-            const pdfData = await parsePDF(file.buffer);
-            resumeText = pdfData.text || "";
-        } catch (e) {
-            console.error("PDF Parse Error:", e);
-        }
+        console.log("Parsing PDF...");
+        const pdfData = await parsePDF(file.buffer);
+        const resumeText = pdfData.text || "";
 
-        // 2. Strict JSON Prompt
+        console.log("Analyzing with AI...");
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        // --- THE STRICT PROMPT ---
         const prompt = `
-            Act as a strict data parser. 
+            Act as a data parser. 
             Job Description: "${jobDescription}"
-            Resume Content: "${resumeText}"
+            Resume: "${resumeText}"
             
-            Instructions:
-            1. Analyze the match between the resume and JD.
-            2. Return ONLY a valid JSON object. 
-            3. DO NOT write any introductory text (no "Here is the analysis", no "JSON:").
-            4. DO NOT use markdown code blocks (\`\`\`json). Just the raw object.
-            
-            Required JSON Structure:
+            Return a JSON object comparing the resume to the JD.
+            Rules:
+            1. Return JSON ONLY. No markdown, no "Here is the JSON".
+            2. matchScore must be a number (0-100).
+            3. missingKeywords must be an array of strings.
+
+            JSON Structure:
             {
-                "matchScore": 0, // Integer between 0 and 100
-                "missingKeywords": ["Skill1", "Skill2"], // Array of missing hard skills from JD
-                "summary": "2 sentence professional summary of the fit."
+                "matchScore": 75,
+                "missingKeywords": ["Git", "SQL", "Unit Testing"],
+                "summary": "Candidate matches core stack but lacks backend fundamentals."
             }
         `;
 
         const result = await model.generateContent(prompt);
-        
-        // 3. Clean the output just in case AI adds markdown
         let text = result.response.text();
+        
+        // Clean up any markdown syntax the AI might accidentally add
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        console.log("Gemini Output:", text); // Log it so you can see it in terminal
+        console.log("AI Response:", text); // Check your terminal, this should now be pure JSON
         
         res.json(JSON.parse(text));
 
