@@ -4,26 +4,16 @@ const multer = require('multer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// --- BULLETPROOF PDF PARSER IMPORT ---
-// This handles every possible version of the library (Class, Function, or Default)
+// --- BULLETPROOF PDF PARSER ---
 let pdfLibrary = require('pdf-parse');
 
 async function parsePDF(buffer) {
     try {
-        // Method 1: Standard Function Call (Most common)
-        if (typeof pdfLibrary === 'function') {
-             return await pdfLibrary(buffer);
-        }
-        // Method 2: Default Export (Common in newer Node versions)
-        if (pdfLibrary.default && typeof pdfLibrary.default === 'function') {
-            return await pdfLibrary.default(buffer);
-        }
-        // Method 3: Class Constructor (The error you saw earlier)
-        // We try to instantiate it if the function call fails
+        if (typeof pdfLibrary === 'function') return await pdfLibrary(buffer);
+        if (pdfLibrary.default && typeof pdfLibrary.default === 'function') return await pdfLibrary.default(buffer);
         const Parser = pdfLibrary.default || pdfLibrary;
         return new Parser(buffer);
     } catch (err) {
-        // If Method 1 failed because it's a class, try Method 3 specifically here
         if (err.message.includes("Class constructor")) {
              const Parser = pdfLibrary;
              return new Parser(buffer);
@@ -31,7 +21,7 @@ async function parsePDF(buffer) {
         throw err;
     }
 }
-// --------------------------------------
+// ------------------------------
 
 const app = express();
 const port = 5000;
@@ -51,52 +41,44 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         if (!file || !jobDescription) return res.status(400).json({ error: "Missing data" });
 
-        console.log(`[1] Processing file: ${file.originalname} (${file.size} bytes)`);
-
+        // 1. Parse PDF
         let resumeText = "";
-        
         try {
             const pdfData = await parsePDF(file.buffer);
             resumeText = pdfData.text || "";
-            // Clean up text (remove excessive newlines)
-            resumeText = resumeText.replace(/\n\s*\n/g, '\n').trim();
-            console.log(`[2] PDF Parsed. Text length: ${resumeText.length} characters.`);
-        } catch (pdfError) {
-            console.error("[ERROR] PDF Parsing failed:", pdfError.message);
-            resumeText = ""; // Continue even if parsing fails
+        } catch (e) {
+            console.error("PDF Parse Error:", e);
         }
 
-        // If text is empty, warn the user but don't crash
-        if (resumeText.length < 50) {
-            console.warn("[WARNING] Resume text is very short or empty. This might be an image PDF.");
-            resumeText = " [Note to AI: The resume text could not be extracted (it might be an image). Please analyze based on what you can infer, or return a match score of 0 and suggest uploading a text-based PDF.] ";
-        }
-
-        console.log("[3] Sending to Gemini...");
-        
+        // 2. Strict JSON Prompt
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const prompt = `
-            Act as an API that parses resumes against JDs.
+            Act as a strict data parser. 
             Job Description: "${jobDescription}"
             Resume Content: "${resumeText}"
             
-            Analysis Rules:
-            1. You are NOT a human. Do NOT speak. Do NOT say "Here is the analysis".
-            2. Return ONLY a JSON object. Nothing else.
-            3. If the resume is an image/empty, set matchScore to 0.
-
-            Output Format (JSON ONLY):
+            Instructions:
+            1. Analyze the match between the resume and JD.
+            2. Return ONLY a valid JSON object. 
+            3. DO NOT write any introductory text (no "Here is the analysis", no "JSON:").
+            4. DO NOT use markdown code blocks (\`\`\`json). Just the raw object.
+            
+            Required JSON Structure:
             {
-                "matchScore": 65,
-                "missingKeywords": ["Git", "SQL", "Unit Testing"],
-                "summary": "Candidate has strong React/Node skills but lacks required backend fundamentals like SQL and Git."
+                "matchScore": 0, // Integer between 0 and 100
+                "missingKeywords": ["Skill1", "Skill2"], // Array of missing hard skills from JD
+                "summary": "2 sentence professional summary of the fit."
             }
         `;
 
         const result = await model.generateContent(prompt);
-        const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
         
-        console.log("[4] Gemini Response Received");
+        // 3. Clean the output just in case AI adds markdown
+        let text = result.response.text();
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        console.log("Gemini Output:", text); // Log it so you can see it in terminal
+        
         res.json(JSON.parse(text));
 
     } catch (error) {
