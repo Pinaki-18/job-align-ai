@@ -31,35 +31,44 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         try {
             const pdfData = await pdf(req.file.buffer);
             resumeText = pdfData.text;
-            console.log(`--- 2. PDF Parsed Successfully (${resumeText.length} chars) ---`);
-        } catch (pdfError) {
-            console.error('PDF Error:', pdfError);
-            return res.status(500).json({ error: 'Failed to read PDF file.' });
+            console.log(`--- 2. PDF Parsed (${resumeText.length} chars) ---`);
+        } catch (err) {
+            console.error('PDF Parse Error:', err);
+            return res.status(500).json({ error: 'Failed to read PDF file' });
         }
 
-        // --- GEMINI CONFIG ---
+        // --- GEMINI MODEL ---
         const model = genAI.getGenerativeModel({
             model: 'gemini-1.5-flash',
             generationConfig: {
                 responseMimeType: 'application/json',
-                temperature: 0.2
+                temperature: 0.1,
+                topP: 0.8
             }
         });
 
-        // --- STRICT ATS PROMPT ---
-        const prompt = `
-You are an ATS resume analyzer.
+        // --- HARD-LOCKED ATS PROMPT ---
+        const result = await model.generateContent([
+            {
+                role: 'user',
+                parts: [{
+                    text: `
+SYSTEM INSTRUCTION (MANDATORY):
+You are an automated ATS resume evaluation engine.
 
-STRICT RULES:
-- Do NOT role-play.
-- Do NOT act as a hiring manager.
-- Do NOT address the candidate by name.
-- Do NOT add greetings, opinions, or encouragement.
-- Use neutral, professional, ATS-style language.
-- Return ONLY valid JSON.
+NON-NEGOTIABLE RULES:
+- You MUST NOT role-play.
+- You MUST NOT act as a hiring manager.
+- You MUST NOT mention or address any person by name.
+- You MUST NOT include headings, sections, or commentary.
+- You MUST NOT add opinions or conversational language.
+- You MUST output ONLY valid JSON.
+- Any rule violation is a failure.
+
+--------------------------------------------------
 
 TASK:
-Compare the resume with the job description and evaluate alignment.
+Evaluate how well the resume matches the job description.
 
 JOB DESCRIPTION:
 ${req.body.jobDesc}
@@ -71,24 +80,23 @@ OUTPUT FORMAT (JSON ONLY):
 {
   "matchScore": number,
   "missingKeywords": ["skill1", "skill2"],
-  "summary": "One-paragraph neutral summary describing alignment and gaps."
+  "summary": "Neutral ATS-style summary of alignment and gaps."
 }
-`;
+`
+                }]
+            }
+        ]);
 
-        console.log('--- 3. Sending to Gemini ---');
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        console.log('--- 3. Gemini Response Received ---');
 
-        console.log('--- 4. Response Received ---');
+        const rawText = result.response.text();
+        const cleanText = rawText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleanText);
 
-        // --- CLEAN & PARSE JSON ---
-        const cleanText = text.replace(/```json|```/g, '').trim();
-        const parsedResponse = JSON.parse(cleanText);
-
-        res.json(parsedResponse);
+        res.json(parsed);
 
     } catch (error) {
-        console.error('CRITICAL SERVER ERROR:', error);
+        console.error('CRITICAL ERROR:', error);
         res.status(500).json({
             error: 'AI Analysis Failed',
             details: error.message
@@ -97,5 +105,5 @@ OUTPUT FORMAT (JSON ONLY):
 });
 
 app.listen(port, () => {
-    console.log(`\n🟢 SERVER RUNNING on http://localhost:${port}\n`);
+    console.log(`\n🟢 SERVER RUNNING → http://localhost:${port}\n`);
 });
