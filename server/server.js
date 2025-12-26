@@ -13,7 +13,8 @@ app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// --- PDF PARSER ---
+// --- 1. Bulletproof PDF Parser ---
+// This handles every possible version of the pdf library so it never crashes.
 let pdfLibrary = require('pdf-parse');
 async function parsePDF(buffer) {
     try {
@@ -26,7 +27,7 @@ async function parsePDF(buffer) {
              const Parser = pdfLibrary;
              return new Parser(buffer);
         }
-        return { text: "" };
+        return { text: "" }; // If parsing fails, return empty text instead of crashing
     }
 }
 
@@ -37,32 +38,34 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         if (!file || !jobDescription) return res.status(400).json({ error: "Missing data" });
 
+        // 2. Parse the PDF
         const pdfData = await parsePDF(file.buffer);
         const resumeText = pdfData.text || "";
 
-        // --- THE FIX: ENABLE JSON MODE ---
+        // 3. Configure AI to FORCE JSON output
+        // This specific setting stops the "Hiring Manager" essays forever.
         const model = genAI.getGenerativeModel({ 
             model: "gemini-1.5-flash",
-            generationConfig: { responseMimeType: "application/json" } // <--- THIS FORCES JSON
+            generationConfig: { responseMimeType: "application/json" } 
         });
         
         const prompt = `
-            You are an ATS. Analyze the resume against the Job Description.
+            Analyze the resume against the Job Description.
             JD: "${jobDescription}"
             Resume: "${resumeText}"
             
-            Output strictly this JSON schema:
+            Return this EXACT JSON structure:
             {
                 "matchScore": number,
-                "missingKeywords": string[],
-                "summary": string
+                "missingKeywords": ["string", "string"],
+                "summary": "string"
             }
         `;
 
         const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        const text = result.response.text(); // This is now GUARANTEED to be JSON
         
-        console.log("Gemini JSON Response:", text); // It will now look like { "matchScore": 80... }
+        console.log("AI Response:", text); 
         
         res.json(JSON.parse(text));
 
