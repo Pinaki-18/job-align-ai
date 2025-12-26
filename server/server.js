@@ -13,8 +13,7 @@ app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// --- 1. Bulletproof PDF Parser ---
-// This handles every possible version of the pdf library so it never crashes.
+// --- PDF PARSER ---
 let pdfLibrary = require('pdf-parse');
 async function parsePDF(buffer) {
     try {
@@ -27,7 +26,7 @@ async function parsePDF(buffer) {
              const Parser = pdfLibrary;
              return new Parser(buffer);
         }
-        return { text: "" }; // If parsing fails, return empty text instead of crashing
+        return { text: "" };
     }
 }
 
@@ -38,34 +37,32 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         if (!file || !jobDescription) return res.status(400).json({ error: "Missing data" });
 
-        // 2. Parse the PDF
         const pdfData = await parsePDF(file.buffer);
         const resumeText = pdfData.text || "";
 
-        // 3. Configure AI to FORCE JSON output
-        // This specific setting stops the "Hiring Manager" essays forever.
+        // --- FORCE JSON MODE ---
         const model = genAI.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             generationConfig: { responseMimeType: "application/json" } 
         });
         
         const prompt = `
-            Analyze the resume against the Job Description.
+            Analyze resume against JD.
             JD: "${jobDescription}"
             Resume: "${resumeText}"
             
-            Return this EXACT JSON structure:
+            Return JSON schema:
             {
                 "matchScore": number,
-                "missingKeywords": ["string", "string"],
-                "summary": "string"
+                "missingKeywords": string[],
+                "summary": string
             }
         `;
 
         const result = await model.generateContent(prompt);
-        const text = result.response.text(); // This is now GUARANTEED to be JSON
+        const text = result.response.text();
         
-        console.log("AI Response:", text); 
+        console.log("✅ AI JSON RESPONSE:", text); 
         
         res.json(JSON.parse(text));
 
@@ -75,4 +72,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
+// --- VERIFICATION MESSAGE ---
+app.listen(port, () => {
+    console.log(`\n!!! NEW JSON SERVER ACTIVE on http://localhost:${port} !!!\n`);
+});
