@@ -18,6 +18,14 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 let requestCount = 0;
 let resetTime = Date.now() + 60000; // Reset after 1 minute
 
+// Simple cache to avoid duplicate API calls
+const resultCache = new Map();
+
+function getCacheKey(jobDesc, resumeText) {
+    // Create a simple hash of the inputs
+    return `${jobDesc.substring(0, 50)}_${resumeText.substring(0, 50)}`;
+}
+
 // Rate limiter middleware
 const rateLimiter = (req, res, next) => {
     const now = Date.now();
@@ -55,10 +63,17 @@ app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
         const pdfData = await pdfParse(req.file.buffer);
         const resumeText = pdfData.text;
 
+        // Check cache first
+        const cacheKey = getCacheKey(req.body.jobDesc, resumeText);
+        if (resultCache.has(cacheKey)) {
+            console.log("--- Returning Cached Result ---");
+            return res.json(resultCache.get(cacheKey));
+        }
+
         console.log("--- Calling Gemini API ---");
 
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash", // Using the stable model
+            model: "gemini-pro", // Using older model with potentially separate quota
         });
 
         const prompt = `
@@ -86,7 +101,12 @@ app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
         
         // Clean the response
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        res.json(JSON.parse(cleanText));
+        const parsedResult = JSON.parse(cleanText);
+        
+        // Cache the result
+        resultCache.set(cacheKey, parsedResult);
+        
+        res.json(parsedResult);
 
     } catch (error) {
         console.error("SERVER ERROR:", error);
