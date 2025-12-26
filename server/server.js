@@ -76,22 +76,20 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const prompt = `
-            You are a strict ATS (Applicant Tracking System) API. 
+            Act as an API that parses resumes against JDs.
             Job Description: "${jobDescription}"
             Resume Content: "${resumeText}"
             
-            Analyze the match between the resume and the JD.
-            
-            CRITICAL OUTPUT RULES:
-            1. You MUST return ONLY valid JSON.
-            2. Do NOT write introductions like "Here is the JSON" or "Okay let's analyze".
-            3. Do NOT use markdown code blocks (like \`\`\`json). Just the raw JSON object.
-            
-            JSON Structure:
+            Analysis Rules:
+            1. You are NOT a human. Do NOT speak. Do NOT say "Here is the analysis".
+            2. Return ONLY a JSON object. Nothing else.
+            3. If the resume is an image/empty, set matchScore to 0.
+
+            Output Format (JSON ONLY):
             {
-                "matchScore": 75,  // An integer between 0-100
-                "missingKeywords": ["Skill1", "Skill2", "Skill3"], // Top 3-5 missing hard skills
-                "summary": "A concise 2-sentence professional summary of the fit."
+                "matchScore": 65,
+                "missingKeywords": ["Git", "SQL", "Unit Testing"],
+                "summary": "Candidate has strong React/Node skills but lacks required backend fundamentals like SQL and Git."
             }
         `;
 
