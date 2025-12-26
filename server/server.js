@@ -13,7 +13,6 @@ app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// --- PDF PARSER ---
 let pdfLibrary = require('pdf-parse');
 async function parsePDF(buffer) {
     try {
@@ -40,7 +39,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const pdfData = await parsePDF(file.buffer);
         const resumeText = pdfData.text || "";
 
-        // --- FORCE JSON MODE ---
+        // --- THE JSON LOCK ---
         const model = genAI.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             generationConfig: { responseMimeType: "application/json" } 
@@ -62,7 +61,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
-        console.log("✅ AI JSON RESPONSE:", text); 
+        console.log("✅ FRESH JSON:", text); 
         
         res.json(JSON.parse(text));
 
@@ -73,6 +72,4 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 });
 
 // --- VERIFICATION MESSAGE ---
-app.listen(port, () => {
-    console.log(`\n!!! NEW JSON SERVER ACTIVE on http://localhost:${port} !!!\n`);
-});
+app.listen(port, () => console.log(`\n🚀 NEW SERVER STARTED (JSON MODE) on http://localhost:${port}\n`));
