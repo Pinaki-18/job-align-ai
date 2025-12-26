@@ -8,6 +8,9 @@ require('dotenv').config();
 const app = express();
 const port = 5001;
 
+// 🔥 DEVELOPMENT MODE - Set to true to avoid API calls during testing
+const MOCK_MODE = true; // Change to false when you have API quota
+
 app.use(cors());
 app.use(express.json());
 
@@ -16,31 +19,30 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Rate limiting variables
 let requestCount = 0;
-let resetTime = Date.now() + 60000; // Reset after 1 minute
+let resetTime = Date.now() + 60000;
 
 // Simple cache to avoid duplicate API calls
 const resultCache = new Map();
 
 function getCacheKey(jobDesc, resumeText) {
-    // Create a simple hash of the inputs
     return `${jobDesc.substring(0, 50)}_${resumeText.substring(0, 50)}`;
 }
 
 // Rate limiter middleware
 const rateLimiter = (req, res, next) => {
+    if (MOCK_MODE) return next(); // Skip rate limiting in mock mode
+    
     const now = Date.now();
     
-    // Reset counter if time window has passed
     if (now >= resetTime) {
         requestCount = 0;
         resetTime = now + 60000;
     }
     
-    // Check if limit exceeded
-    if (requestCount >= 15) { // Set to 15 to be safe (limit is 20)
+    if (requestCount >= 15) {
         const waitTime = Math.ceil((resetTime - now) / 1000);
         return res.status(429).json({ 
-            error: `Rate limit exceeded. Please wait ${waitTime} seconds before trying again.`,
+            error: `Rate limit exceeded. Please wait ${waitTime} seconds.`,
             retryAfter: waitTime
         });
     }
@@ -51,14 +53,12 @@ const rateLimiter = (req, res, next) => {
 
 app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
     try {
-        console.log(`--- Request ${requestCount}/15 ---`);
+        console.log(`\n--- Request ${MOCK_MODE ? 'MOCK' : requestCount + '/15'} ---`);
 
-        // Check if resume file is uploaded
         if (!req.file) {
             return res.status(400).json({ error: 'No resume file uploaded' });
         }
 
-        // Parse the PDF resume
         console.log("--- Parsing PDF Resume ---");
         const pdfData = await pdfParse(req.file.buffer);
         const resumeText = pdfData.text;
@@ -66,14 +66,34 @@ app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
         // Check cache first
         const cacheKey = getCacheKey(req.body.jobDesc, resumeText);
         if (resultCache.has(cacheKey)) {
-            console.log("--- Returning Cached Result ---");
+            console.log("--- ✅ Returning Cached Result ---");
             return res.json(resultCache.get(cacheKey));
         }
 
-        console.log("--- Calling Gemini API ---");
+        // 🎭 MOCK MODE - Return realistic fake data
+        if (MOCK_MODE) {
+            console.log("--- 🎭 MOCK MODE: Generating fake analysis ---");
+            
+            const mockResult = {
+                matchScore: Math.floor(Math.random() * 30) + 70, // 70-100
+                missingKeywords: ["Docker", "Kubernetes", "AWS", "CI/CD", "Microservices"],
+                summary: `Strong candidate with relevant technical skills. The resume demonstrates experience with modern development practices and aligns well with the job requirements. Consider discussing cloud infrastructure experience and containerization knowledge during the interview.`
+            };
+            
+            resultCache.set(cacheKey, mockResult);
+            
+            // Simulate API delay
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            console.log("--- ✅ Mock Result Generated ---");
+            return res.json(mockResult);
+        }
+
+        // 🌐 REAL API MODE
+        console.log("--- 🌐 Calling Real Gemini API ---");
 
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-pro", // Using older model with potentially separate quota
+            model: "gemini-pro",
         });
 
         const prompt = `
@@ -83,10 +103,10 @@ app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
             
             Resume Content: "${resumeText}"
             
-            Provide your analysis in valid JSON format with the following structure:
+            Provide your analysis in valid JSON format:
             {
-                "matchScore": <number between 0-100>,
-                "missingKeywords": [<array of missing important keywords>],
+                "matchScore": <number 0-100>,
+                "missingKeywords": [<array of missing keywords>],
                 "summary": "<brief summary of candidate fit>"
             }
             
@@ -97,31 +117,27 @@ app.post('/analyze', rateLimiter, upload.single('resume'), async (req, res) => {
         const response = await result.response;
         const text = response.text();
         
-        console.log("--- Success! Response received. ---");
+        console.log("--- ✅ API Response Received ---");
         
-        // Clean the response
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsedResult = JSON.parse(cleanText);
         
-        // Cache the result
         resultCache.set(cacheKey, parsedResult);
-        
         res.json(parsedResult);
 
     } catch (error) {
-        console.error("SERVER ERROR:", error);
+        console.error("❌ SERVER ERROR:", error.message);
         
-        // Handle specific Gemini API errors
         if (error.message.includes('quota') || error.message.includes('rate limit')) {
             return res.status(429).json({ 
-                error: 'API rate limit exceeded. Please wait a minute and try again.',
-                details: error.message
+                error: 'API rate limit exceeded. Enable MOCK_MODE in server.js or wait and try again.',
+                suggestion: 'Set MOCK_MODE = true in server.js line 11'
             });
         }
         
         res.status(500).json({ 
             error: error.message,
-            details: "Failed to analyze resume. Check server logs for details."
+            details: "Failed to analyze resume."
         });
     }
 });
@@ -133,9 +149,22 @@ app.get('/health', (req, res) => {
     
     res.json({
         status: 'OK',
-        requestsRemaining: Math.max(0, 15 - requestCount),
-        resetIn: timeUntilReset + ' seconds'
+        mode: MOCK_MODE ? 'MOCK' : 'LIVE',
+        requestsRemaining: MOCK_MODE ? 'unlimited' : Math.max(0, 15 - requestCount),
+        resetIn: MOCK_MODE ? 'N/A' : timeUntilReset + ' seconds',
+        cacheSize: resultCache.size
     });
 });
 
-app.listen(port, () => console.log(`\n🟢 SERVER RUNNING on http://localhost:${port}\n`));
+// Clear cache endpoint
+app.post('/clear-cache', (req, res) => {
+    resultCache.clear();
+    res.json({ message: 'Cache cleared successfully' });
+});
+
+app.listen(port, () => {
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`🟢 SERVER RUNNING on http://localhost:${port}`);
+    console.log(`Mode: ${MOCK_MODE ? '🎭 MOCK (No API calls)' : '🌐 LIVE (Real API)'}`);
+    console.log(`${'='.repeat(50)}\n`);
+});
