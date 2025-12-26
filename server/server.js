@@ -40,38 +40,29 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const pdfData = await parsePDF(file.buffer);
         const resumeText = pdfData.text || "";
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // --- THE FIX: ENABLE JSON MODE ---
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash",
+            generationConfig: { responseMimeType: "application/json" } // <--- THIS FORCES JSON
+        });
         
-        // --- STRICT JSON ONLY PROMPT ---
         const prompt = `
-            Act as a strict data API. 
+            You are an ATS. Analyze the resume against the Job Description.
             JD: "${jobDescription}"
             Resume: "${resumeText}"
             
-            CRITICAL: Return ONLY valid JSON. Do not speak. Do not write "Here is the JSON".
-            
-            Structure:
+            Output strictly this JSON schema:
             {
-                "matchScore": 85,
-                "missingKeywords": ["SQL", "Git", "API Integration"],
-                "summary": "Candidate matches core React/Node stack well but lacks SQL/Git."
+                "matchScore": number,
+                "missingKeywords": string[],
+                "summary": string
             }
         `;
 
         const result = await model.generateContent(prompt);
-        let text = result.response.text();
+        const text = result.response.text();
         
-        // --- CLEANER: Remove markdown if present ---
-        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        // --- SAFETY: Find the JSON object ---
-        const firstBracket = text.indexOf('{');
-        const lastBracket = text.lastIndexOf('}');
-        if (firstBracket !== -1 && lastBracket !== -1) {
-            text = text.substring(firstBracket, lastBracket + 1);
-        }
-        
-        console.log("FINAL JSON:", text); // Check your terminal for this!
+        console.log("Gemini JSON Response:", text); // It will now look like { "matchScore": 80... }
         
         res.json(JSON.parse(text));
 
