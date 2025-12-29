@@ -29,48 +29,84 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
         console.log("--- Asking Gemini... ---");
         
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-pro",
+            generationConfig: {
+                temperature: 0.3, // Lower temperature for more focused output
+            }
+        });
         
-        // ✅ STRONGER PROMPT - Forces objective analysis format
+        // ✅ NUCLEAR OPTION - Ultra-strict prompt
         const prompt = `
-            You are a resume analysis system. Analyze the resume against the job description and provide ONLY a technical compatibility report.
+            ROLE: You are an automated ATS (Applicant Tracking System) generating a technical compatibility score.
             
-            Job Description: "${req.body.jobDesc}"
-            Resume Content: "${resumeText}"
+            STRICT OUTPUT FORMAT REQUIRED - NO DEVIATION ALLOWED:
             
-            CRITICAL RULES:
-            1. Do NOT write as a hiring manager or recruiter
-            2. Do NOT address anyone by name or use "you/your"
-            3. Do NOT give advice or tips
-            4. Do NOT use conversational tone
-            5. Write ONLY an objective technical assessment
-            
-            Output format (follow EXACTLY):
-            
-            Match Score: [X]/10
+            Match Score: [number]/10
             
             Missing Keywords:
-            - [keyword 1]
-            - [keyword 2]
-            - [keyword 3]
-            - [keyword 4]
+            - [keyword]
+            - [keyword]
+            - [keyword]
             
             Summary:
-            [Write 2-3 sentences analyzing technical skill alignment between resume and job description. Use third-person objective language only.]
+            [Technical assessment in passive voice, third-person only. Maximum 3 sentences.]
             
-            Example of correct tone: "The resume demonstrates Python experience through project work. Missing explicit mentions of Django and PostgreSQL frameworks listed in job requirements. Overall technical alignment is moderate."
+            ---
             
-            Example of INCORRECT tone (do NOT use): "Aditya, your resume shows great Python skills! Here are some tips..."
+            PROHIBITED CONTENT - DO NOT INCLUDE:
+            ❌ Names of candidates
+            ❌ Words: "you", "your", "Aditya", "hiring manager", "tips", "advice", "improve", "boost", "should"
+            ❌ Bullet point sections titled "Strengths", "Tips", "Action Items", "Recommendations"
+            ❌ Conversational greetings or sign-offs
+            ❌ Any text outside the 3-section format above
+            
+            REQUIRED STYLE:
+            ✓ Use passive voice: "Python experience is demonstrated" NOT "You demonstrate Python"
+            ✓ Be factual and robotic
+            ✓ Stick to the format above ONLY
+            
+            ---
+            
+            Job Description: "${req.body.jobDesc}"
+            
+            Resume Content: "${resumeText}"
+            
+            Generate ONLY the 3-section output above. Begin with "Match Score:" immediately.
         `;
         
         const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        let text = result.response.text();
         
-        console.log("--- AI Output Received ---");
+        console.log("--- Raw AI Output ---");
         console.log(text);
         
+        // ✅ AGGRESSIVE FILTERING - Remove any hiring manager language
+        const blockedPhrases = [
+            /okay,?\s*aditya/gi,
+            /let'?s take a look/gi,
+            /hiring manager/gi,
+            /your (profile|resume|experience)/gi,
+            /\byou('re| are| have)\b/gi,
+            /tips for/gi,
+            /here('s| are) some/gi,
+            /i('d| would) recommend/gi,
+            /### .*/g, // Remove markdown headers
+            /\*\*.*?\*\*/g, // Remove bold text
+        ];
+        
+        blockedPhrases.forEach(regex => {
+            text = text.replace(regex, '');
+        });
+        
+        // Extract only the core content between "Match Score" and end
+        const coreMatch = text.match(/Match Score:([\s\S]*)/i);
+        if (coreMatch) {
+            text = "Match Score:" + coreMatch[1];
+        }
+        
         // ---------------------------------------------------------
-        // Extract structured data from response
+        // Extract structured data
         // ---------------------------------------------------------
         
         // 1. Extract Score
@@ -84,7 +120,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         }
         
         // 2. Extract Missing Keywords
-        let missingKeywords = ["Technical alignment needs improvement"];
+        let missingKeywords = ["Review required for detailed assessment"];
         const keywordSection = text.match(/Missing Keywords?:([\s\S]*?)(?=Summary:|$)/i);
         
         if (keywordSection && keywordSection[1]) {
@@ -93,24 +129,28 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
                 .map(line => line.trim())
                 .filter(line => line.match(/^[-•*]\s*.+/))
                 .map(line => line.replace(/^[-•*]\s*/, '').trim())
-                .filter(line => line.length > 0 && line.length < 100);
+                .filter(line => line.length > 2 && line.length < 80);
             
             if (keywords.length > 0) {
-                missingKeywords = keywords.slice(0, 10); // Limit to 10 keywords
+                missingKeywords = keywords.slice(0, 8);
             }
         }
         
         // 3. Extract Summary
-        let summary = "Technical analysis completed.";
+        let summary = "Automated technical compatibility analysis completed.";
         const summarySection = text.match(/Summary:([\s\S]*?)$/i);
         
         if (summarySection && summarySection[1]) {
-            const extractedSummary = summarySection[1].trim();
-            // Filter out any "tips" or advice-giving language
-            if (!extractedSummary.toLowerCase().includes('tip') && 
-                !extractedSummary.toLowerCase().includes('advice') &&
-                !extractedSummary.toLowerCase().includes('you should')) {
-                summary = extractedSummary.substring(0, 300);
+            let extractedSummary = summarySection[1]
+                .trim()
+                .split('\n')[0] // Take only first paragraph
+                .substring(0, 250);
+            
+            // Only use if it doesn't contain blocked phrases
+            const hasBlockedContent = /\b(you|your|aditya|tips|advice|should|improve)\b/i.test(extractedSummary);
+            
+            if (!hasBlockedContent && extractedSummary.length > 20) {
+                summary = extractedSummary;
             }
         }
         
@@ -120,8 +160,8 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             summary: summary
         };
         
-        console.log(`--- Parsed Score: ${finalData.matchScore} ---`);
-        console.log(`--- Keywords: ${finalData.missingKeywords.join(', ')} ---`);
+        console.log(`--- Final Parsed Data ---`);
+        console.log(JSON.stringify(finalData, null, 2));
         
         res.json(finalData);
         
@@ -129,8 +169,8 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         console.error("Server Error:", error.message);
         res.json({
             matchScore: 0,
-            missingKeywords: ["Analysis failed"],
-            summary: "Unable to process resume analysis."
+            missingKeywords: ["System error during analysis"],
+            summary: "Unable to complete automated analysis."
         });
     }
 });
