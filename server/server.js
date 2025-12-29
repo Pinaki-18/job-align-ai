@@ -26,17 +26,19 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
         console.log("\n--- New Analysis Request ---");
+        
+        // 1. Parse PDF
         let resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-
-        // Fallback for empty PDFs
         if (!resumeText || resumeText.length < 50) {
             console.log("⚠️ PDF empty. Using fallback text.");
-            resumeText = `Name: Candidate. Role: Full Stack Engineer. Skills: Python, Node.js, React, AI Integration. Experience: Built JobAlign AI.`;
+            resumeText = `Name: Candidate. Role: Software Engineer.`;
         }
 
-        if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
+        // 2. Check API Key
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error("API Key is missing on Server");
+        }
 
-        // --- UPDATED PROMPT ---
         const prompt = `
             Analyze this resume against the Job Description.
             Job Description: "${req.body.jobDesc}"
@@ -46,28 +48,28 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             SCORE: [Number 0-100]%
             MISSING: [Comma separated list of missing critical skills]
             SUMMARY: [One professional sentence summary]
-            FEEDBACK: [3-4 detailed bullet points on specific changes to make the resume better.]
-            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query for this candidate based on their skills (e.g. "Junior React Developer Remote")]
+            FEEDBACK: [3-4 detailed bullet points on specific changes]
+            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query (e.g. "Junior React Developer Remote")]
         `;
 
         console.log("👉 Sending Request to Gemini...");
 
-        // ⚠️ FIXED: Switched from 'gemini-flash-latest' to 'gemini-pro' (Stable)
+        // ⚠️ FIXED: Using 'gemini-1.5-flash' which is STABLE for free keys
         const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
             { contents: [{ parts: [{ text: prompt }] }] },
             { headers: { 'Content-Type': 'application/json' } }
         );
 
-        // Check if candidate exists before accessing
+        // 3. Safety Check: Did Google answer?
         if (!response.data.candidates || response.data.candidates.length === 0) {
-             throw new Error("Gemini returned no candidates.");
+             throw new Error("Google AI returned no results (Blocked/Safety).");
         }
 
         const text = response.data.candidates[0].content.parts[0].text;
         console.log("--- ✅ Success! Google Responded ---");
 
-        // --- PARSING LOGIC ---
+        // 4. Parse the Answer
         let matchScore = 70; 
         const scoreMatch = text.match(/SCORE:\s*(\d{1,3})%/i); 
         if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
@@ -92,27 +94,27 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
         if (queryMatch) searchQuery = queryMatch[1].trim();
 
-        console.log(`🎯 AI Suggests Searching For: "${searchQuery}"`);
-
+        // 5. Send Response
         res.json({ matchScore, missingKeywords, summary, feedback, searchQuery });
 
     } catch (error) {
         console.error("❌ Error:", error.message);
-        // Better error message for frontend
+        console.error("❌ Stack:", error.response ? JSON.stringify(error.response.data) : error);
+        
+        // Return a SAFE response so the screen doesn't go blank
         res.json({ 
-            matchScore: 0, 
-            missingKeywords: ["Error"], 
-            summary: "AI Analysis Failed", 
-            feedback: "The AI server is busy or the key is invalid. Please try again.", 
+            matchScore: 10, 
+            missingKeywords: ["Error with AI Service"], 
+            summary: "Analysis Failed", 
+            feedback: "The AI service is currently busy or the API key is invalid. Please try again.", 
             searchQuery: "Developer" 
         });
     }
 });
 
-// Add this for your search-jobs route if you have one, or keep it as is
+// Keep your existing job search route
 app.get('/search-jobs', async (req, res) => {
-    // ... (Keep your existing search code if you have it here) ...
-    res.json([]); // Placeholder
+    res.json([]); 
 });
 
 app.listen(port, () => console.log(`\n🟢 SERVER READY on http://localhost:${port}\n`));
