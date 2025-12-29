@@ -1,96 +1,149 @@
 import { useState } from 'react';
 import axios from 'axios';
-import './App.css'; // We will add some simple styles below
+import './App.css';
 
 function App() {
-  const [file, setFile] = useState(null);
   const [jobDesc, setJobDesc] = useState("");
+  const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+    setError("");
+  };
 
   const handleUpload = async () => {
     if (!file || !jobDesc) {
-      alert("Please select a file and paste the Job Description");
+      setError("Please provide both a Job Description and a Resume PDF.");
       return;
     }
 
     setLoading(true);
+    setResult(null);
+    setError("");
+
     const formData = new FormData();
     formData.append('resume', file);
     formData.append('jobDesc', jobDesc);
 
     try {
-      // Make sure this is 5001!
-const res = await axios.post('http://localhost:5001/analyze', formData);
+      // Connects to your backend on Port 5001
+      const res = await axios.post('http://localhost:5001/analyze', formData);
       setResult(res.data);
-    } catch (error) {
-      console.error(error);
-      alert("Analysis failed. Check console.");
+    } catch (err) {
+      console.error(err);
+      setError("Analysis failed. Please check if the server is running.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  // Helper to determine circle color based on score
+  const getScoreColor = (score) => {
+    if (score >= 80) return "#10b981"; // Green
+    if (score >= 50) return "#f59e0b"; // Yellow
+    return "#ef4444"; // Red
   };
 
   return (
     <div className="container">
-      <h1>🚀 JobAlign AI</h1>
-      <p className="subtitle">Optimize your resume for the ATS</p>
+      <header>
+        <h1>JobAlign AI</h1>
+        <p className="subtitle">Resume & JD Matcher Powered by Gemini</p>
+      </header>
 
       {/* INPUT SECTION */}
-      <div className="input-group">
+      <div className="upload-section">
+        <h3>1. Paste Job Description</h3>
         <textarea 
-          placeholder="Paste Job Description here..." 
+          placeholder="Paste the full job description here..."
           value={jobDesc}
           onChange={(e) => setJobDesc(e.target.value)}
-          rows="4"
         />
-        <input 
-          type="file" 
-          accept=".pdf"
-          onChange={(e) => setFile(e.target.files[0])} 
-        />
-        <button onClick={handleUpload} disabled={loading} className="analyze-btn">
-          {loading ? "Analyzing..." : "Analyze Match"}
+
+        <h3>2. Upload Resume (PDF)</h3>
+        <div className="file-drop">
+          <input 
+            type="file" 
+            accept=".pdf" 
+            onChange={handleFileChange} 
+            style={{ display: 'none' }} 
+            id="fileInput"
+          />
+          <label htmlFor="fileInput">
+            {file ? (
+              <span style={{ color: '#4ade80' }}>📄 {file.name}</span>
+            ) : (
+              <span>Click to Upload Resume PDF</span>
+            )}
+          </label>
+        </div>
+
+        {error && <p style={{ color: '#ef4444', marginTop: '1rem' }}>{error}</p>}
+
+        <button 
+          className="analyze-btn" 
+          onClick={handleUpload} 
+          disabled={loading}
+        >
+          {loading ? "Scanning Resume..." : "Analyze Match"}
         </button>
       </div>
 
       {/* RESULTS SECTION */}
       {result && (
-        <div className="result-card">
-          <div className="score-section">
-            <div className="score-circle" style={{
-              background: `conic-gradient(${getScoreColor(result.matchScore)} ${result.matchScore * 3.6}deg, #e0e0e0 0deg)`
-            }}>
-              <span className="score-text">{result.matchScore}%</span>
-            </div>
-            <h3>Match Score</h3>
+        <div className="results-grid">
+          
+          {/* LEFT: SCORE CIRCLE */}
+          <div className="score-card">
+            <svg viewBox="0 0 36 36" className="circular-chart">
+              <path className="circle-bg"
+                d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+              <path className="circle"
+                strokeDasharray={`${result.matchScore}, 100`}
+                stroke={getScoreColor(result.matchScore)}
+                d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+              <text x="18" y="20.35" className="percentage">
+                {result.matchScore}%
+              </text>
+            </svg>
+            <p style={{ marginTop: '1rem', color: '#94a3b8' }}>Match Score</p>
           </div>
 
-          <div className="details-section">
-            <div className="summary-box">
-              <h4>📝 AI Summary</h4>
-              <p>{result.summary}</p>
+          {/* RIGHT: DETAILS */}
+          <div className="details-card">
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3>Missing Keywords</h3>
+              <div className="badge-container">
+                {result.missingKeywords.length > 0 ? (
+                  result.missingKeywords.map((kw, i) => (
+                    <span key={i} className="badge">
+                      {kw}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ color: '#94a3b8' }}>None! Perfect match.</span>
+                )}
+              </div>
             </div>
 
-            <div className="keywords-box">
-              <h4>⚠️ Missing Keywords</h4>
-              <div className="tags">
-                {result.missingKeywords.map((keyword, index) => (
-                  <span key={index} className="tag missing">{keyword}</span>
-                ))}
-              </div>
+            <div>
+              <h3>AI Verdict</h3>
+              <p className="summary-text">{result.summary}</p>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-// Helper to change color based on score
-function getScoreColor(score) {
-  if (score >= 80) return "#4caf50"; // Green
-  if (score >= 50) return "#ff9800"; // Orange
-  return "#f44336"; // Red
 }
 
 export default App;
