@@ -4,7 +4,7 @@ const multer = require('multer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// --- 1. SAFE PDF IMPORT (Keep this, it works!) ---
+// --- SAFE PDF PARSER ---
 let pdfParseLib;
 try {
     pdfParseLib = require('pdf-parse');
@@ -23,77 +23,66 @@ async function parsePDF(buffer) {
         return "";
     }
 }
-// --------------------------------------------------
+// ------------------------
 
 const app = express();
 const port = 5001;
-
-// Set to FALSE to use Real AI (Since it is working now!)
-const MOCK_MODE = false; 
 
 app.use(cors());
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-let genAI;
-if (process.env.GEMINI_API_KEY) {
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-}
+// Initialize AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
-        console.log(`\n--- Request Received (Mock: ${MOCK_MODE}) ---`);
+        console.log("\n--- New Request Received ---");
 
-        // 1. Parse PDF
-        if (!req.file) return res.status(400).json({ error: 'No file' });
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        // 1. Read PDF
         const resumeText = await parsePDF(req.file.buffer);
-        console.log(`--- PDF Read: ${resumeText.substring(0, 20)}... ---`);
+        console.log(`--- PDF Read (${resumeText.length} chars) ---`);
 
-        // 2. Mock Mode (Optional)
-        if (MOCK_MODE) {
-            await new Promise(r => setTimeout(r, 1000));
-            return res.json({
-                matchScore: 85,
-                missingKeywords: ["MockData"],
-                summary: "Mock Mode is ON. Set MOCK_MODE = false to use Real AI."
-            });
-        }
-
-        // 3. Real AI Request
+        // 2. Send to AI
         console.log("--- Sending to Gemini... ---");
+        // Using gemini-pro (Standard Model)
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
         const prompt = `
-            You are a Resume Scanner API. 
+            You are a rigorous code parser.
             Job Description: "${req.body.jobDesc}"
             Resume Text: "${resumeText}"
             
             Analyze the match. 
-            CRITICAL: Output ONLY a valid JSON object. Do not speak. Do not write an intro.
+            CRITICAL INSTRUCTION: Output ONLY a valid JSON object. 
+            Do NOT write "Here is the analysis". Do NOT write "Okay Aditya".
+            Just the JSON.
             
-            Expected JSON Structure:
+            Required JSON Format:
             {
-                "matchScore": <number between 0-100>,
+                "matchScore": <number 0-100>,
                 "missingKeywords": ["skill1", "skill2"],
-                "summary": "<short analysis>"
+                "summary": "<short 1-sentence summary>"
             }
         `;
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
-        console.log("--- AI Responded. Cleaning output... ---");
+        console.log("--- AI Responded. Extracting JSON... ---");
 
-        // --- 4. THE FIX: Extract JSON from "Essay" ---
-        // This finds the first "{" and the last "}" to ignore any intro text
+        // --- 3. THE FIX: Find JSON inside the Essay ---
         const jsonStart = text.indexOf('{');
         const jsonEnd = text.lastIndexOf('}') + 1;
         
         if (jsonStart === -1 || jsonEnd === -1) {
-            throw new Error("AI did not return JSON");
+            throw new Error("AI output contained no JSON data");
         }
 
+        // Cut out the clean JSON part
         const cleanJson = text.substring(jsonStart, jsonEnd);
         const finalData = JSON.parse(cleanJson);
 
@@ -102,11 +91,11 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
     } catch (error) {
         console.error("Error:", error.message);
-        // Fallback so UI never breaks
+        // Fallback: If AI fails, give a generic score so UI doesn't crash
         res.json({
             matchScore: 0,
-            missingKeywords: ["AI Error"],
-            summary: "The AI analysis failed to format correctly. Please try again."
+            missingKeywords: ["Error Parsing AI Response"],
+            summary: "The AI analysis failed. Please try again."
         });
     }
 });
