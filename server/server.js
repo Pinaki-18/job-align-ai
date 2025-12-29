@@ -28,88 +28,92 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         console.log("--- Request Received ---");
         const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
         console.log("--- Asking Gemini... ---");
-        // Using 'gemini-pro' because it works, even if it is chatty
+        
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         
-        // ✅ FIXED PROMPT - Clear, Direct Instructions
+        // ✅ STRONGER PROMPT - Forces objective analysis format
         const prompt = `
-            Analyze this resume against the job description and provide a technical assessment.
+            You are a resume analysis system. Analyze the resume against the job description and provide ONLY a technical compatibility report.
             
             Job Description: "${req.body.jobDesc}"
             Resume Content: "${resumeText}"
             
-            Provide your response in this EXACT format:
+            CRITICAL RULES:
+            1. Do NOT write as a hiring manager or recruiter
+            2. Do NOT address anyone by name or use "you/your"
+            3. Do NOT give advice or tips
+            4. Do NOT use conversational tone
+            5. Write ONLY an objective technical assessment
             
-            Match Score: [number]/10
+            Output format (follow EXACTLY):
+            
+            Match Score: [X]/10
             
             Missing Keywords:
             - [keyword 1]
             - [keyword 2]
             - [keyword 3]
+            - [keyword 4]
             
             Summary:
-            [Brief 2-3 sentence technical assessment of the candidate's qualifications and fit]
+            [Write 2-3 sentences analyzing technical skill alignment between resume and job description. Use third-person objective language only.]
             
-            IMPORTANT INSTRUCTIONS:
-            - Do NOT write as a hiring manager
-            - Do NOT address the candidate directly
-            - Do NOT use phrases like "Aditya" or "your profile" or "tips for you"
-            - Write in third-person objective analysis only
-            - Focus on technical skill matching and gaps
-            - Keep it concise and factual
+            Example of correct tone: "The resume demonstrates Python experience through project work. Missing explicit mentions of Django and PostgreSQL frameworks listed in job requirements. Overall technical alignment is moderate."
+            
+            Example of INCORRECT tone (do NOT use): "Aditya, your resume shows great Python skills! Here are some tips..."
         `;
         
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
-        console.log("--- AI Output Received (Text Mode) ---");
-        console.log(text); // Debug: see what Gemini returns
+        console.log("--- AI Output Received ---");
+        console.log(text);
         
         // ---------------------------------------------------------
-        // THE FIX: "Scrape" the data from the Essay
+        // Extract structured data from response
         // ---------------------------------------------------------
-        // 1. Find the Score (e.g., "Match Score: 7.5/10")
-        let matchScore = 70; // Safe default
         
-        // Regex looks for a number (like 7, 7.5, 8) right after "Score"
-        const scoreRegex = /Score[:\s]*([\d\.]+)/i;
-        const found = text.match(scoreRegex);
+        // 1. Extract Score
+        let matchScore = 70;
+        const scoreRegex = /Match Score[:\s]*([\d\.]+)/i;
+        const scoreMatch = text.match(scoreRegex);
         
-        if (found && found[1]) {
-            let rawNum = parseFloat(found[1]);
-            // If it's 7.5, make it 75. If it's 8, make it 80.
-            if (rawNum <= 10) {
-                matchScore = rawNum * 10;
-            } else {
-                matchScore = rawNum;
-            }
+        if (scoreMatch && scoreMatch[1]) {
+            let rawNum = parseFloat(scoreMatch[1]);
+            matchScore = rawNum <= 10 ? rawNum * 10 : rawNum;
         }
         
         // 2. Extract Missing Keywords
-        let missingKeywords = ["General Improvement"];
+        let missingKeywords = ["Technical alignment needs improvement"];
         const keywordSection = text.match(/Missing Keywords?:([\s\S]*?)(?=Summary:|$)/i);
+        
         if (keywordSection && keywordSection[1]) {
-            // Extract lines that start with - or bullet points
             const keywords = keywordSection[1]
                 .split('\n')
                 .map(line => line.trim())
-                .filter(line => line.startsWith('-') || line.startsWith('•'))
-                .map(line => line.replace(/^[-•]\s*/, '').trim())
-                .filter(line => line.length > 0);
+                .filter(line => line.match(/^[-•*]\s*.+/))
+                .map(line => line.replace(/^[-•*]\s*/, '').trim())
+                .filter(line => line.length > 0 && line.length < 100);
             
             if (keywords.length > 0) {
-                missingKeywords = keywords;
+                missingKeywords = keywords.slice(0, 10); // Limit to 10 keywords
             }
         }
         
         // 3. Extract Summary
-        let summary = "Analysis completed successfully.";
+        let summary = "Technical analysis completed.";
         const summarySection = text.match(/Summary:([\s\S]*?)$/i);
+        
         if (summarySection && summarySection[1]) {
-            summary = summarySection[1].trim().substring(0, 250);
+            const extractedSummary = summarySection[1].trim();
+            // Filter out any "tips" or advice-giving language
+            if (!extractedSummary.toLowerCase().includes('tip') && 
+                !extractedSummary.toLowerCase().includes('advice') &&
+                !extractedSummary.toLowerCase().includes('you should')) {
+                summary = extractedSummary.substring(0, 300);
+            }
         }
         
-        // 4. Force Build JSON
         const finalData = {
             matchScore: Math.round(matchScore),
             missingKeywords: missingKeywords,
@@ -117,15 +121,16 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         };
         
         console.log(`--- Parsed Score: ${finalData.matchScore} ---`);
+        console.log(`--- Keywords: ${finalData.missingKeywords.join(', ')} ---`);
         
-        // Send ONLY JSON to frontend
         res.json(finalData);
+        
     } catch (error) {
         console.error("Server Error:", error.message);
         res.json({
             matchScore: 0,
-            missingKeywords: ["Server Error"],
-            summary: "Failed to process AI response."
+            missingKeywords: ["Analysis failed"],
+            summary: "Unable to process resume analysis."
         });
     }
 });
