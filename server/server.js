@@ -4,7 +4,7 @@ const multer = require('multer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// --- PDF SETUP ---
+// --- PDF PARSER ---
 let pdfParseLib;
 try { pdfParseLib = require('pdf-parse'); } catch (err) {}
 
@@ -23,35 +23,32 @@ app.use(cors());
 app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- THE FIX: SMART MODEL SELECTOR ---
+// --- SMART MODEL SWITCHER ---
+// This function tries multiple model names until one works.
 async function generateWithFallback(genAI, prompt) {
-    // List of models to try in order
     const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
     
     for (const modelName of modelsToTry) {
         try {
-            console.log(`👉 Trying model: ${modelName}...`);
+            console.log(`👉 Attempting connection with model: ${modelName}...`);
             const model = genAI.getGenerativeModel({ model: modelName });
             const result = await model.generateContent(prompt);
-            return result.response.text(); // If success, return text immediately
+            const response = await result.response;
+            return response.text(); 
         } catch (error) {
-            console.error(`❌ ${modelName} failed: ${error.message.split(' ')[0]}`);
-            // If it's the last model and it failed, throw error
+            console.warn(`⚠️ ${modelName} failed: ${error.message.split(' ')[0]}`);
+            // If this was the last model, throw the error to be caught below
             if (modelName === modelsToTry[modelsToTry.length - 1]) throw error;
-            // Otherwise, continue loop to try next model
         }
     }
 }
 
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
-        console.log("\n--- New Analysis Request ---");
+        console.log("\n--- New Request Received ---");
         const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-        
-        // Check API Key
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("Missing GEMINI_API_KEY in .env file");
-        }
+
+        if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
         const prompt = `
@@ -65,12 +62,12 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             MISSING: [Comma separated list of missing skills]
         `;
 
-        // USE THE FALLBACK FUNCTION
+        // CALL THE SWITCHER
         const text = await generateWithFallback(genAI, prompt);
         
-        console.log("--- AI Success! Parsing Data... ---");
+        console.log("--- ✅ AI Connected! Parsing Results... ---");
 
-        // --- PARSER LOGIC ---
+        // --- PARSE RESULTS ---
         let matchScore = 70; 
         const scoreMatch = text.match(/(\d{1,3})%/); 
         if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
@@ -90,11 +87,11 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         });
 
     } catch (error) {
-        console.error("🔥 ALL MODELS FAILED:", error.message);
+        console.error("❌ ALL MODELS FAILED:", error.message);
         res.json({ 
             matchScore: 0, 
             missingKeywords: ["API Error"], 
-            summary: "Could not connect to Google AI. Check Server Logs." 
+            summary: "Could not connect to Google AI. Please check server logs." 
         });
     }
 });
