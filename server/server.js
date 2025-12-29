@@ -36,7 +36,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
 
-        // --- UPDATED PROMPT: ASKS FOR 'SEARCH_QUERY' ---
+        // --- UPDATED PROMPT ---
         const prompt = `
             Analyze this resume against the Job Description.
             Job Description: "${req.body.jobDesc}"
@@ -52,11 +52,17 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         console.log("👉 Sending Request to Gemini...");
 
+        // ⚠️ FIXED: Switched from 'gemini-flash-latest' to 'gemini-pro' (Stable)
         const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
             { contents: [{ parts: [{ text: prompt }] }] },
             { headers: { 'Content-Type': 'application/json' } }
         );
+
+        // Check if candidate exists before accessing
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+             throw new Error("Gemini returned no candidates.");
+        }
 
         const text = response.data.candidates[0].content.parts[0].text;
         console.log("--- ✅ Success! Google Responded ---");
@@ -75,15 +81,13 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         if (missingMatch) missingKeywords = missingMatch[1].split(',').map(s => s.trim()).slice(0, 4);
 
         let feedback = "No specific feedback provided.";
-        const feedbackMatch = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i); // Stop reading at SEARCH_QUERY
+        const feedbackMatch = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i); 
         if (feedbackMatch) feedback = feedbackMatch[1].trim();
         else {
-             // Fallback if regex fails (sometimes AI adds extra newlines)
              const simpleFeedback = text.match(/FEEDBACK:([\s\S]*?)$/i);
              if (simpleFeedback) feedback = simpleFeedback[1].trim();
         }
 
-        // --- NEW: CAPTURE THE SEARCH QUERY ---
         let searchQuery = "Software Engineer";
         const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
         if (queryMatch) searchQuery = queryMatch[1].trim();
@@ -94,8 +98,21 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
     } catch (error) {
         console.error("❌ Error:", error.message);
-        res.json({ matchScore: 0, missingKeywords: ["Error"], summary: "Server Error", feedback: "Check console.", searchQuery: "Developer" });
+        // Better error message for frontend
+        res.json({ 
+            matchScore: 0, 
+            missingKeywords: ["Error"], 
+            summary: "AI Analysis Failed", 
+            feedback: "The AI server is busy or the key is invalid. Please try again.", 
+            searchQuery: "Developer" 
+        });
     }
+});
+
+// Add this for your search-jobs route if you have one, or keep it as is
+app.get('/search-jobs', async (req, res) => {
+    // ... (Keep your existing search code if you have it here) ...
+    res.json([]); // Placeholder
 });
 
 app.listen(port, () => console.log(`\n🟢 SERVER READY on http://localhost:${port}\n`));
