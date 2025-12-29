@@ -32,72 +32,67 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
         console.log("--- Request Received ---");
-        
         const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-        console.log(`--- PDF Read (${resumeText.length} chars) ---`);
 
-        // 1. Send Request
+        // 1. Send Request to Gemini
+        // We tell it to be a Hiring Manager since it wants to be one anyway.
         console.log("--- Asking Gemini... ---");
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
         const prompt = `
-            Act as a Resume Scoring Algorithm.
-            Job Description: "${req.body.jobDesc}"
-            Resume: "${resumeText}"
+            Review this resume for the job description: "${req.body.jobDesc}"
+            Resume Content: "${resumeText}"
             
-            Provide a Match Score (0-100) and a list of missing keywords.
-            If you write an introduction like "Okay Aditya", I will fail.
-            JUST DATA.
+            Give me a match score out of 100.
+            List 3 missing keywords.
+            Write a 1 sentence summary.
         `;
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
-        console.log("--- AI Output Received. Cleaning... ---");
+        console.log("--- AI Output Received (Text Mode). Processing... ---");
 
-        // 2. THE FIX: The "Essay Scraper" logic
-        // We assume the AI messed up and wrote text. We extract data manually.
+        // 2. NUCLEAR TEXT PARSER
+        // We extract data using Regex because the output is conversational text.
         
-        let matchScore = 0;
-        let summary = "Analysis complete.";
-        let missingKeywords = ["General Review"];
-
-        // Strategy A: Try to find valid JSON first
-        const jsonStart = text.indexOf('{');
-        const jsonEnd = text.lastIndexOf('}') + 1;
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-            try {
-                const jsonPart = JSON.parse(text.substring(jsonStart, jsonEnd));
-                matchScore = jsonPart.matchScore || 0;
-                summary = jsonPart.summary || summary;
-                missingKeywords = jsonPart.missingKeywords || missingKeywords;
-            } catch (e) { console.log("JSON Parse failed, switching to Text Scraper..."); }
+        // A. Find the Score (Looks for "Score: 8/10", "82/100", "82%")
+        let matchScore = 50; // Default fallback
+        const scoreRegex = /(\d+)(?:\/10|\/100|%)/; 
+        const scoreMatch = text.match(scoreRegex);
+        
+        if (scoreMatch) {
+            let rawScore = parseInt(scoreMatch[1]);
+            // If score is 8/10, convert to 80. If 82/100, keep 82.
+            if (rawScore <= 10) rawScore *= 10; 
+            matchScore = rawScore;
         }
 
-        // Strategy B: "Scrape" the text for numbers if JSON failed
-        if (matchScore === 0) {
-            // Regex to find "Score: 82" or "82/100" or "82%"
-            const scoreRegex = /(?:Score|Match|Rating)[:\s]*(\d+)/i;
-            const found = text.match(scoreRegex);
-            if (found && found[1]) {
-                matchScore = parseInt(found[1]);
-            }
-            // Use the whole text as summary if it's short, or cut it
-            summary = text.replace(/\n/g, ' ').substring(0, 150) + "...";
+        // B. Find Missing Keywords (Looks for lists or bullet points)
+        // We just grab some capitalized words from the middle of the text as a fallback
+        let missingKeywords = ["Review Summary"];
+        if (text.toLowerCase().includes("missing")) {
+             // Simple logic: grab a few words after "Missing"
+             const missingPart = text.split(/missing/i)[1].substring(0, 50);
+             missingKeywords = [missingPart.trim()];
         }
 
+        // C. Create Summary
+        // Just take the first 150 characters of the AI's response
+        const summary = text.replace(/\*/g, '').replace(/#/g, '').substring(0, 150) + "...";
+
+        // 3. Construct the JSON manually
         const finalData = {
             matchScore: matchScore,
-            missingKeywords: ["See summary"], // Simplified for text mode
+            missingKeywords: missingKeywords,
             summary: summary
         };
 
-        console.log(`--- Success! Extracted Score: ${finalData.matchScore} ---`);
+        console.log(`--- Parsed Score: ${finalData.matchScore} ---`);
         res.json(finalData);
 
     } catch (error) {
         console.error("Server Error:", error.message);
-        // Fallback: Frontend needs JSON, so we give it JSON.
         res.json({
             matchScore: 0,
             missingKeywords: ["Server Error"],
@@ -106,4 +101,4 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`\n🟢 SCRAPER SERVER READY on http://localhost:${port}\n`));
+app.listen(port, () => console.log(`\n🟢 TEXT PARSER SERVER READY on http://localhost:${port}\n`));
