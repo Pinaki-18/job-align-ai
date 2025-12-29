@@ -1,311 +1,279 @@
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-require('dotenv').config();
+import { useState } from 'react';
+import axios from 'axios';
+import './App.css';
 
-// --- PDF SETUP ---
-let pdfParseLib;
-try {
-    pdfParseLib = require('pdf-parse');
-} catch (err) { 
-    console.error("⚠️  PDF Library missing - install with: npm install pdf-parse"); 
-}
+function App() {
+  const [jobDesc, setJobDesc] = useState("");
+  const [file, setFile] = useState(null);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
-async function parsePDF(buffer) {
-    if (!pdfParseLib) return "PDF parsing unavailable";
-    try {
-        const parser = typeof pdfParseLib === 'function' ? pdfParseLib : pdfParseLib.default;
-        const data = await parser(buffer);
-        return data.text;
-    } catch (err) { 
-        console.error("❌ PDF Parse Error:", err.message);
-        return ""; 
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile && selectedFile.type === 'application/pdf') {
+      setFile(selectedFile);
+      setError("");
+    } else {
+      setError("Please upload a PDF file only.");
     }
-}
+  };
 
-// -----------------
-const app = express();
-const port = 5001;
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
 
-app.use(cors());
-app.use(express.json());
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
 
-const upload = multer({ 
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-});
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile && droppedFile.type === 'application/pdf') {
+      setFile(droppedFile);
+      setError("");
+    } else {
+      setError("Please upload a PDF file only.");
+    }
+  };
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const handleUpload = async () => {
+    if (!file || !jobDesc) {
+      setError("⚠️ Please provide both a Job Description and a Resume PDF.");
+      return;
+    }
 
-// ============================================
-// MAIN ANALYZE ENDPOINT
-// ============================================
-app.post('/analyze', upload.single('resume'), async (req, res) => {
-    const startTime = Date.now();
-    
+    setLoading(true);
+    setResult(null);
+    setError("");
+
+    const formData = new FormData();
+    formData.append('resume', file);
+    formData.append('jobDesc', jobDesc);
+
     try {
-        console.log("\n" + "=".repeat(50));
-        console.log("🎯 NEW ANALYSIS REQUEST");
-        console.log("=".repeat(50));
-        
-        // Extract resume text
-        const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-        const jobDesc = req.body.jobDesc || "";
-        
-        if (!resumeText || resumeText.length < 50) {
-            throw new Error("Resume text too short or invalid");
-        }
-        
-        if (!jobDesc || jobDesc.length < 20) {
-            throw new Error("Job description too short");
-        }
-        
-        console.log(`📄 Resume extracted: ${resumeText.length} characters`);
-        console.log(`📋 Job description: ${jobDesc.length} characters`);
-        
-        console.log("\n🤖 Calling Gemini AI...");
-        
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-pro",
-            generationConfig: {
-                temperature: 0.4, // Balanced creativity
-                topP: 0.8,
-                topK: 40,
-            }
-        });
+      const res = await axios.post('http://localhost:5001/analyze', formData);
+      setResult(res.data);
+    } catch (err) {
+      console.error(err);
+      setError("❌ Analysis failed. Please check if the server is running.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // ============================================
-        // ENHANCED PROMPT - No "Hiring Manager" tone
-        // ============================================
-        const prompt = `
-You are an ATS (Applicant Tracking System) performing technical resume analysis.
+  const getScoreColor = (score) => {
+    if (score >= 80) return "#10b981";
+    if (score >= 50) return "#f59e0b";
+    return "#ef4444";
+  };
 
-JOB DESCRIPTION:
-${jobDesc}
+  const getScoreGrade = (score) => {
+    if (score >= 90) return "Excellent Match! 🎯";
+    if (score >= 80) return "Strong Match 💪";
+    if (score >= 70) return "Good Match ✨";
+    if (score >= 50) return "Moderate Match 📊";
+    return "Needs Improvement 📝";
+  };
 
-RESUME CONTENT:
-${resumeText}
+  return (
+    <div className="container">
+      {/* Header */}
+      <header>
+        <div className="logo-container">
+          <span className="logo-icon">🎯</span>
+          <h1>JobAlign AI</h1>
+        </div>
+        <p className="subtitle">
+          AI-Powered Resume & Job Description Matcher
+        </p>
+        <div className="powered-badge">
+          <span>Powered by Gemini AI ✨</span>
+        </div>
+      </header>
 
-TASK: Analyze the resume against the job description and provide a structured technical assessment.
+      {/* INPUT SECTION */}
+      <div className="upload-section">
+        <div className="section-header">
+          <span className="step-number">1</span>
+          <h3>Job Description</h3>
+        </div>
+        <textarea 
+          placeholder="Paste the job description here... (e.g., Required skills: Python, React, Node.js...)"
+          value={jobDesc}
+          onChange={(e) => setJobDesc(e.target.value)}
+        />
 
-OUTPUT FORMAT (must follow exactly):
+        <div className="section-header">
+          <span className="step-number">2</span>
+          <h3>Upload Resume</h3>
+        </div>
+        <div 
+          className={`file-drop ${isDragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <input 
+            type="file" 
+            accept=".pdf" 
+            onChange={handleFileChange} 
+            style={{ display: 'none' }} 
+            id="fileInput"
+          />
+          <label htmlFor="fileInput">
+            {file ? (
+              <div className="file-success">
+                <span className="file-icon">✅</span>
+                <div>
+                  <p className="file-name">{file.name}</p>
+                  <p className="file-size">{(file.size / 1024).toFixed(2)} KB</p>
+                </div>
+              </div>
+            ) : (
+              <div className="file-prompt">
+                <span className="upload-icon">📄</span>
+                <p className="file-prompt-text">
+                  <strong>Click to upload</strong> or drag and drop
+                </p>
+                <p className="file-hint">PDF only • Max 10MB</p>
+              </div>
+            )}
+          </label>
+        </div>
 
-Match Score: [number]%
+        {error && (
+          <div className="error-box">
+            <span className="error-icon">⚠️</span>
+            {error}
+          </div>
+        )}
 
-Initial Impression:
-[Write 2-3 objective sentences analyzing the technical fit. Use third-person perspective. Be factual and concise. Do NOT use "you/your" or give advice.]
+        <button 
+          className="analyze-btn" 
+          onClick={handleUpload} 
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <span className="spinner">⚙️</span>
+              Analyzing Resume...
+            </>
+          ) : (
+            <>
+              <span className="btn-icon">🚀</span>
+              Analyze Match
+            </>
+          )}
+        </button>
+      </div>
 
-Missing Keywords:
-- [keyword 1]
-- [keyword 2]
-- [keyword 3]
-- [keyword 4]
-- [keyword 5]
-
-RULES:
-- Be objective and technical
-- No conversational tone
-- No "hiring manager" perspective
-- No tips or recommendations
-- Just analyze the match
-- List actual missing technical skills/keywords from the JD
-- Score should reflect realistic alignment (50-95% range typical)
-
-Begin response now:
-        `.trim();
-
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        
-        console.log("\n" + "=".repeat(50));
-        console.log("📥 RAW AI RESPONSE:");
-        console.log("=".repeat(50));
-        console.log(text.substring(0, 300) + "...\n");
-        
-        // ============================================
-        // SMART PARSING ENGINE
-        // ============================================
-        console.log("⚙️  Parsing AI response...");
-        
-        // 1. EXTRACT MATCH SCORE
-        let matchScore = 70; // Safe default
-        
-        const scorePatterns = [
-            /Match Score[:\s*]*([\d\.]+)\s*%/i,
-            /Score[:\s*]*([\d\.]+)\s*%/i,
-            /Match[:\s*]*([\d\.]+)\s*%/i,
-            /([\d\.]+)\s*%\s*Match/i
-        ];
-        
-        for (const pattern of scorePatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                let score = parseFloat(match[1]);
-                
-                // Handle decimal format (0.85 → 85%)
-                if (score <= 1) {
-                    score *= 100;
-                }
-                
-                // Handle /10 format (8.5/10 → 85%)
-                if (score <= 10) {
-                    score *= 10;
-                }
-                
-                // Ensure realistic range
-                matchScore = Math.max(0, Math.min(100, Math.round(score)));
-                break;
-            }
-        }
-        
-        console.log(`   ✓ Match Score: ${matchScore}%`);
-        
-        // 2. EXTRACT SUMMARY (Initial Impression)
-        let summary = "Technical analysis completed.";
-        
-        const summaryPatterns = [
-            /Initial Impression[:\s\n]+([\s\S]*?)(?=Missing Keywords|###|$)/i,
-            /Summary[:\s\n]+([\s\S]*?)(?=Missing Keywords|###|$)/i,
-            /Assessment[:\s\n]+([\s\S]*?)(?=Missing Keywords|###|$)/i
-        ];
-        
-        for (const pattern of summaryPatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                summary = match[1]
-                    .replace(/[*#\n]+/g, ' ') // Remove markdown and newlines
-                    .replace(/\s+/g, ' ')      // Normalize spaces
-                    .trim();
-                
-                if (summary.length > 50) {
-                    break;
-                }
-            }
-        }
-        
-        // Fallback: Get first substantial paragraph
-        if (summary.length < 50) {
-            const paragraphs = text.split('\n').filter(p => 
-                p.length > 60 && 
-                !p.toLowerCase().includes('match score') &&
-                !p.toLowerCase().includes('missing keywords')
-            );
-            if (paragraphs.length > 0) {
-                summary = paragraphs[0].replace(/[*#]/g, '').trim();
-            }
-        }
-        
-        // Limit length
-        if (summary.length > 400) {
-            summary = summary.substring(0, 397) + "...";
-        }
-        
-        console.log(`   ✓ Summary: ${summary.substring(0, 60)}...`);
-        
-        // 3. EXTRACT MISSING KEYWORDS
-        let missingKeywords = [];
-        
-        const keywordMatch = text.match(/Missing Keywords[:\s\n]+([\s\S]*?)(?=###|$)/i);
-        
-        if (keywordMatch && keywordMatch[1]) {
-            const lines = keywordMatch[1].split('\n');
+      {/* RESULTS SECTION */}
+      {result && (
+        <div className="results-grid">
+          
+          {/* LEFT: SCORE CIRCLE */}
+          <div className="score-card">
+            <div className="score-header">
+              <h3 className="score-label">Match Score</h3>
+              <p className="score-grade">{getScoreGrade(result.matchScore)}</p>
+            </div>
             
-            for (const line of lines) {
-                const trimmed = line.trim();
-                
-                // Match bullet points: "- keyword" or "• keyword" or "* keyword"
-                if (trimmed.match(/^[-•*]\s+(.+)/)) {
-                    const keyword = trimmed
-                        .replace(/^[-•*]\s+/, '')
-                        .replace(/[*_]/g, '') // Remove markdown
-                        .trim();
-                    
-                    if (keyword.length > 2 && keyword.length < 100) {
-                        missingKeywords.push(keyword);
-                    }
-                }
-            }
-        }
-        
-        // Fallback if no keywords found
-        if (missingKeywords.length === 0) {
-            missingKeywords = ["Technical alignment review needed"];
-        }
-        
-        // Limit to top 8 keywords
-        missingKeywords = missingKeywords.slice(0, 8);
-        
-        console.log(`   ✓ Missing Keywords: ${missingKeywords.length} found`);
-        
-        // ============================================
-        // BUILD RESPONSE
-        // ============================================
-        const finalData = {
-            matchScore: matchScore,
-            missingKeywords: missingKeywords,
-            summary: summary
-        };
-        
-        const elapsed = Date.now() - startTime;
-        
-        console.log("\n" + "=".repeat(50));
-        console.log("✅ ANALYSIS COMPLETE");
-        console.log("=".repeat(50));
-        console.log(`📊 Score: ${finalData.matchScore}%`);
-        console.log(`🔍 Keywords: ${finalData.missingKeywords.join(', ')}`);
-        console.log(`⏱️  Processing time: ${elapsed}ms`);
-        console.log("=".repeat(50) + "\n");
-        
-        res.json(finalData);
+            <div className="circle-wrapper">
+              <svg viewBox="0 0 36 36" className="circular-chart">
+                <path className="circle-bg"
+                  d="M18 2.0845
+                    a 15.9155 15.9155 0 0 1 0 31.831
+                    a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <path className="circle"
+                  strokeDasharray={`${result.matchScore}, 100`}
+                  stroke={getScoreColor(result.matchScore)}
+                  d="M18 2.0845
+                    a 15.9155 15.9155 0 0 1 0 31.831
+                    a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <text x="18" y="20.35" className="percentage">
+                  {result.matchScore}%
+                </text>
+              </svg>
+              <div 
+                className="score-glow" 
+                style={{ background: `radial-gradient(circle, ${getScoreColor(result.matchScore)}40 0%, transparent 70%)` }}
+              />
+            </div>
 
-    } catch (error) {
-        console.error("\n" + "=".repeat(50));
-        console.error("❌ ERROR OCCURRED");
-        console.error("=".repeat(50));
-        console.error("Error:", error.message);
-        console.error("Stack:", error.stack);
-        console.error("=".repeat(50) + "\n");
-        
-        res.status(500).json({
-            matchScore: 0,
-            missingKeywords: ["Analysis failed - " + error.message],
-            summary: "Unable to complete analysis. Please check server logs."
-        });
-    }
-});
+            {/* Score Breakdown */}
+            <div className="score-breakdown">
+              <div className="score-metric">
+                <span className="metric-label">Keywords Found</span>
+                <span className="metric-value">
+                  {Math.max(0, 10 - result.missingKeywords.length)}/10
+                </span>
+              </div>
+              <div className="score-metric">
+                <span className="metric-label">Overall Fit</span>
+                <span className="metric-value">
+                  {result.matchScore >= 80 ? 'High' : result.matchScore >= 50 ? 'Medium' : 'Low'}
+                </span>
+              </div>
+            </div>
+          </div>
 
-// ============================================
-// HEALTH CHECK ENDPOINT
-// ============================================
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        geminiApiConfigured: !!process.env.GEMINI_API_KEY,
-        pdfParserAvailable: !!pdfParseLib
-    });
-});
+          {/* RIGHT: DETAILS */}
+          <div className="details-card">
+            <div className="detail-section">
+              <div className="detail-header">
+                <span className="detail-icon">🔍</span>
+                <h3 className="detail-title">Missing Keywords</h3>
+                <span className="keyword-count">{result.missingKeywords.length}</span>
+              </div>
+              <div className="badge-container">
+                {result.missingKeywords.length > 0 ? (
+                  result.missingKeywords.map((kw, i) => (
+                    <span key={i} className="badge">
+                      <span className="badge-dot">•</span>
+                      {kw}
+                    </span>
+                  ))
+                ) : (
+                  <div className="perfect-match">
+                    <span className="perfect-icon">🎉</span>
+                    <p>Perfect Match! No missing keywords.</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
-// ============================================
-// START SERVER
-// ============================================
-app.listen(port, () => {
-    console.log("\n" + "=".repeat(60));
-    console.log("🚀 JOBALIGN AI SERVER");
-    console.log("=".repeat(60));
-    console.log(`📍 Server running on: http://localhost:${port}`);
-    console.log(`📍 Health check: http://localhost:${port}/health`);
-    console.log(`🤖 Gemini API: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '❌ Missing'}`);
-    console.log(`📄 PDF Parser: ${pdfParseLib ? '✅ Available' : '❌ Missing'}`);
-    console.log("=".repeat(60));
-    console.log("💡 Ready to analyze resumes!\n");
-});
+            <div className="detail-section">
+              <div className="detail-header">
+                <span className="detail-icon">🤖</span>
+                <h3 className="detail-title">AI Analysis</h3>
+              </div>
+              <div className="summary-box">
+                <p className="summary-text">{result.summary}</p>
+              </div>
+            </div>
 
-// ============================================
-// GRACEFUL SHUTDOWN
-// ============================================
-process.on('SIGINT', () => {
-    console.log("\n\n🛑 Server shutting down gracefully...");
-    process.exit(0);
-});
+            {/* Action Buttons */}
+            <div className="action-buttons">
+              <button className="secondary-btn" onClick={() => setResult(null)}>
+                ↻ Analyze Another
+              </button>
+              <button className="primary-btn-small" onClick={() => alert('Export feature coming soon!')}>
+                📥 Export Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
