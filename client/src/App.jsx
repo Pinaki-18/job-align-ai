@@ -31,7 +31,7 @@ function App() {
 
     try {
       // 1. Analyze Resume
-      const res = await axios.post('https://job-align-ai.onrender.com', formData);
+      const res = await axios.post('https://job-align-ai.onrender.com/analyze', formData);
       setResult(res.data);
 
       // 2. Fetch Jobs (Try Real API, Fallback to Mock)
