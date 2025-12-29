@@ -3,13 +3,11 @@ const cors = require('cors');
 const multer = require('multer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
-
 // --- PDF SETUP ---
 let pdfParseLib;
 try {
     pdfParseLib = require('pdf-parse');
 } catch (err) { console.error("PDF Lib missing"); }
-
 async function parsePDF(buffer) {
     if (!pdfParseLib) return "PDF Error";
     try {
@@ -19,78 +17,109 @@ async function parsePDF(buffer) {
     } catch (err) { return ""; }
 }
 // -----------------
-
 const app = express();
 const port = 5001;
-
 app.use(cors());
 app.use(express.json());
-
 const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
         console.log("--- Request Received ---");
         const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-
-        // 1. Send Request to Gemini
-        // We tell it to be a Hiring Manager since it wants to be one anyway.
         console.log("--- Asking Gemini... ---");
+        // Using 'gemini-pro' because it works, even if it is chatty
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
+        
+        // ✅ FIXED PROMPT - Clear, Direct Instructions
         const prompt = `
-            Review this resume for the job description: "${req.body.jobDesc}"
+            Analyze this resume against the job description and provide a technical assessment.
+            
+            Job Description: "${req.body.jobDesc}"
             Resume Content: "${resumeText}"
             
-            Give me a match score out of 100.
-            List 3 missing keywords.
-            Write a 1 sentence summary.
+            Provide your response in this EXACT format:
+            
+            Match Score: [number]/10
+            
+            Missing Keywords:
+            - [keyword 1]
+            - [keyword 2]
+            - [keyword 3]
+            
+            Summary:
+            [Brief 2-3 sentence technical assessment of the candidate's qualifications and fit]
+            
+            IMPORTANT INSTRUCTIONS:
+            - Do NOT write as a hiring manager
+            - Do NOT address the candidate directly
+            - Do NOT use phrases like "Aditya" or "your profile" or "tips for you"
+            - Write in third-person objective analysis only
+            - Focus on technical skill matching and gaps
+            - Keep it concise and factual
         `;
-
+        
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
-        console.log("--- AI Output Received (Text Mode). Processing... ---");
-
-        // 2. NUCLEAR TEXT PARSER
-        // We extract data using Regex because the output is conversational text.
+        console.log("--- AI Output Received (Text Mode) ---");
+        console.log(text); // Debug: see what Gemini returns
         
-        // A. Find the Score (Looks for "Score: 8/10", "82/100", "82%")
-        let matchScore = 50; // Default fallback
-        const scoreRegex = /(\d+)(?:\/10|\/100|%)/; 
-        const scoreMatch = text.match(scoreRegex);
+        // ---------------------------------------------------------
+        // THE FIX: "Scrape" the data from the Essay
+        // ---------------------------------------------------------
+        // 1. Find the Score (e.g., "Match Score: 7.5/10")
+        let matchScore = 70; // Safe default
         
-        if (scoreMatch) {
-            let rawScore = parseInt(scoreMatch[1]);
-            // If score is 8/10, convert to 80. If 82/100, keep 82.
-            if (rawScore <= 10) rawScore *= 10; 
-            matchScore = rawScore;
+        // Regex looks for a number (like 7, 7.5, 8) right after "Score"
+        const scoreRegex = /Score[:\s]*([\d\.]+)/i;
+        const found = text.match(scoreRegex);
+        
+        if (found && found[1]) {
+            let rawNum = parseFloat(found[1]);
+            // If it's 7.5, make it 75. If it's 8, make it 80.
+            if (rawNum <= 10) {
+                matchScore = rawNum * 10;
+            } else {
+                matchScore = rawNum;
+            }
         }
-
-        // B. Find Missing Keywords (Looks for lists or bullet points)
-        // We just grab some capitalized words from the middle of the text as a fallback
-        let missingKeywords = ["Review Summary"];
-        if (text.toLowerCase().includes("missing")) {
-             // Simple logic: grab a few words after "Missing"
-             const missingPart = text.split(/missing/i)[1].substring(0, 50);
-             missingKeywords = [missingPart.trim()];
+        
+        // 2. Extract Missing Keywords
+        let missingKeywords = ["General Improvement"];
+        const keywordSection = text.match(/Missing Keywords?:([\s\S]*?)(?=Summary:|$)/i);
+        if (keywordSection && keywordSection[1]) {
+            // Extract lines that start with - or bullet points
+            const keywords = keywordSection[1]
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('-') || line.startsWith('•'))
+                .map(line => line.replace(/^[-•]\s*/, '').trim())
+                .filter(line => line.length > 0);
+            
+            if (keywords.length > 0) {
+                missingKeywords = keywords;
+            }
         }
-
-        // C. Create Summary
-        // Just take the first 150 characters of the AI's response
-        const summary = text.replace(/\*/g, '').replace(/#/g, '').substring(0, 150) + "...";
-
-        // 3. Construct the JSON manually
+        
+        // 3. Extract Summary
+        let summary = "Analysis completed successfully.";
+        const summarySection = text.match(/Summary:([\s\S]*?)$/i);
+        if (summarySection && summarySection[1]) {
+            summary = summarySection[1].trim().substring(0, 250);
+        }
+        
+        // 4. Force Build JSON
         const finalData = {
-            matchScore: matchScore,
+            matchScore: Math.round(matchScore),
             missingKeywords: missingKeywords,
             summary: summary
         };
-
+        
         console.log(`--- Parsed Score: ${finalData.matchScore} ---`);
+        
+        // Send ONLY JSON to frontend
         res.json(finalData);
-
     } catch (error) {
         console.error("Server Error:", error.message);
         res.json({
@@ -101,4 +130,4 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`\n🟢 TEXT PARSER SERVER READY on http://localhost:${port}\n`));
+app.listen(port, () => console.log(`\n🟢 SCRAPER SERVER READY on http://localhost:${port}\n`));
