@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import './App.css';
+import './App.css'; // ⚠️ Check if your file is named "App.css" or "app.css"
 
 function App() {
   const [jobDesc, setJobDesc] = useState("");
@@ -11,8 +11,10 @@ function App() {
   const [jobs, setJobs] = useState([]); 
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-    setError("");
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      setError("");
+    }
   };
 
   const handleUpload = async () => {
@@ -31,18 +33,23 @@ function App() {
 
     try {
       // 1. Analyze Resume
+      // ⚠️ USING YOUR LIVE RENDER URL
       const res = await axios.post('https://job-align-ai.onrender.com/analyze', formData);
+      
+      // Safety: Ensure response data exists
+      if (!res.data) throw new Error("Empty response from server");
+      
       setResult(res.data);
 
-      // 2. Fetch Jobs (Try Real API, Fallback to Mock)
+      // 2. Fetch Jobs (Safely)
       if (res.data.searchQuery) {
         console.log("Fetching jobs for:", res.data.searchQuery);
-        fetchJobs(res.data.searchQuery);
+        await fetchJobs(res.data.searchQuery);
       }
 
     } catch (err) {
       console.error(err);
-      setError("❌ Server Error: Ensure backend is running.");
+      setError("❌ Server Error: The backend might be waking up. Try again in 30 seconds.");
     } finally {
       setLoading(false);
     }
@@ -53,24 +60,22 @@ function App() {
       // Try to hit the Real API
       const res = await axios.get(`https://job-align-ai.onrender.com/search-jobs?query=${encodeURIComponent(query)}`);
       
-      if (res.data && res.data.length > 0) {
-        // If Real Jobs found, use them
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         setJobs(res.data);
       } else {
-        // If API returns empty or fails, use MOCK DATA
-        console.warn("⚠️ No real jobs found (Check API Key). Switching to Demo Mode.");
         useMockJobs(query);
       }
     } catch (err) {
-      // If Network Error, use MOCK DATA
-      console.error("Job Fetch Failed. Switching to Demo Mode.");
+      console.warn("Job API failed, switching to demo jobs.");
       useMockJobs(query);
     }
   };
 
   const useMockJobs = (query) => {
-    // Generate realistic fake jobs based on the AI's query
-    const cleanTitle = query.replace("Search query", "").replace("Remote", "").trim();
+    // Safety check for query
+    const safeQuery = query || "Software Engineer";
+    const cleanTitle = safeQuery.replace("Search query", "").replace("Remote", "").trim();
+    
     const mockJobs = [
       {
         id: 101,
@@ -155,21 +160,23 @@ function App() {
         </button>
       </div>
 
+      {/* 🛡️ DEFENSIVE RENDERING STARTS HERE */}
       {result && (
         <div className="results-grid">
           <div className="score-card">
             <p className="score-label">MATCH SCORE</p>
-            <h2 style={{marginTop: '0.5rem', marginBottom: '2rem'}}>{getScoreLabel(result.matchScore)}</h2>
+            {/* SAFE: Defaults to 0 if matchScore is missing */}
+            <h2 style={{marginTop: '0.5rem', marginBottom: '2rem'}}>{getScoreLabel(result.matchScore || 0)}</h2>
             <div className="circle-container">
               <svg viewBox="0 0 36 36" className="circular-chart">
                 <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                 <path className="circle" 
-                  strokeDasharray={`${result.matchScore}, 100`}
-                  stroke={getScoreColor(result.matchScore)}
+                  strokeDasharray={`${result.matchScore || 0}, 100`}
+                  stroke={getScoreColor(result.matchScore || 0)}
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
               </svg>
-              <div className="percentage">{result.matchScore}%</div>
+              <div className="percentage">{result.matchScore || 0}%</div>
             </div>
           </div>
 
@@ -177,33 +184,37 @@ function App() {
             <div className="detail-section">
               <div className="detail-header"><span style={{fontSize: '1.5rem'}}>🔍</span><h3 className="detail-title">Missing Keywords</h3></div>
               <div className="badge-container">
-                {result.missingKeywords.length > 0 ? result.missingKeywords.map((kw, i) => <span key={i} className="badge">▪ {kw}</span>) : <span style={{color: '#10b981'}}>None! Perfect Match.</span>}
+                {/* SAFE: Checks if array exists before mapping */}
+                {(result.missingKeywords || []).length > 0 ? 
+                  (result.missingKeywords || []).map((kw, i) => <span key={i} className="badge">▪ {kw}</span>) 
+                  : <span style={{color: '#10b981'}}>None! Perfect Match.</span>
+                }
               </div>
             </div>
 
             <div className="detail-section">
               <div className="detail-header"><span style={{fontSize: '1.5rem'}}>💡</span><h3 className="detail-title">Actionable Feedback</h3></div>
               <div className="summary-box" style={{background: 'rgba(99, 102, 241, 0.1)', borderLeft: '4px solid #8b5cf6'}}>
-                <div style={{whiteSpace: 'pre-line'}}>{result.feedback}</div>
+                <div style={{whiteSpace: 'pre-line'}}>{result.feedback || "No specific feedback provided."}</div>
               </div>
             </div>
 
-            {/* --- JOBS SECTION (HYBRID: REAL or DEMO) --- */}
-            {jobs.length > 0 && (
+            {/* --- JOBS SECTION (SAFE) --- */}
+            {jobs && jobs.length > 0 && (
               <div className="job-section">
                 <div className="detail-header">
                   <span style={{fontSize: '1.5rem'}}>💼</span>
                   <h3 className="detail-title">Recommended Jobs</h3>
                 </div>
                 <p style={{color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem'}}>
-                   AI Search Strategy: <strong style={{color: '#fff'}}>"{result.searchQuery}"</strong>
+                   AI Search Strategy: <strong style={{color: '#fff'}}>"{result.searchQuery || "Job Search"}"</strong>
                 </p>
 
                 <div className="job-grid">
                   {jobs.map(job => (
                     <div key={job.id} className="job-card">
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'start'}}>
-                        <h4 className="job-role">{job.title.length > 25 ? job.title.substring(0,25)+"..." : job.title}</h4>
+                        <h4 className="job-role">{job.title}</h4>
                         {job.logo && <img src={job.logo} alt="logo" style={{width:'30px', height:'30px', objectFit:'contain', borderRadius:'4px'}} />}
                       </div>
                       
@@ -225,7 +236,7 @@ function App() {
                 </div>
               </div>
             )}
-            {/* ------------------------------------------- */}
+            {/* ------------------- */}
 
             <button className="secondary-btn" onClick={() => window.location.reload()}>↻ Analyze Another</button>
           </div>
