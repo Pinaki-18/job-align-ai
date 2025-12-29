@@ -32,11 +32,10 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const model = genAI.getGenerativeModel({ 
             model: "gemini-pro",
             generationConfig: {
-                temperature: 0.3, // Lower temperature for more focused output
+                temperature: 0.3,
             }
         });
         
-        // ✅ NUCLEAR OPTION - Ultra-strict prompt
         const prompt = `
             ROLE: You are an automated ATS (Applicant Tracking System) generating a technical compatibility score.
             
@@ -81,7 +80,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         console.log("--- Raw AI Output ---");
         console.log(text);
         
-        // ✅ AGGRESSIVE FILTERING - Remove any hiring manager language
+        // Aggressive filtering
         const blockedPhrases = [
             /okay,?\s*aditya/gi,
             /let'?s take a look/gi,
@@ -91,15 +90,14 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             /tips for/gi,
             /here('s| are) some/gi,
             /i('d| would) recommend/gi,
-            /### .*/g, // Remove markdown headers
-            /\*\*.*?\*\*/g, // Remove bold text
+            /### .*/g,
+            /\*\*.*?\*\*/g,
         ];
         
         blockedPhrases.forEach(regex => {
             text = text.replace(regex, '');
         });
         
-        // Extract only the core content between "Match Score" and end
         const coreMatch = text.match(/Match Score:([\s\S]*)/i);
         if (coreMatch) {
             text = "Match Score:" + coreMatch[1];
@@ -109,15 +107,23 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         // Extract structured data
         // ---------------------------------------------------------
         
-        // 1. Extract Score
-        let matchScore = 70;
+        // 1. Extract Score and convert to percentage
+        let matchScore = 70; // Default 70%
         const scoreRegex = /Match Score[:\s]*([\d\.]+)/i;
         const scoreMatch = text.match(scoreRegex);
         
         if (scoreMatch && scoreMatch[1]) {
             let rawNum = parseFloat(scoreMatch[1]);
-            matchScore = rawNum <= 10 ? rawNum * 10 : rawNum;
+            // Convert to percentage (0-100 scale)
+            if (rawNum <= 10) {
+                matchScore = Math.round(rawNum * 10); // 8/10 becomes 80%
+            } else {
+                matchScore = Math.round(rawNum); // Already in percentage
+            }
         }
+        
+        // Ensure it stays within 0-100 range
+        matchScore = Math.max(0, Math.min(100, matchScore));
         
         // 2. Extract Missing Keywords
         let missingKeywords = ["Review required for detailed assessment"];
@@ -143,10 +149,9 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         if (summarySection && summarySection[1]) {
             let extractedSummary = summarySection[1]
                 .trim()
-                .split('\n')[0] // Take only first paragraph
+                .split('\n')[0]
                 .substring(0, 250);
             
-            // Only use if it doesn't contain blocked phrases
             const hasBlockedContent = /\b(you|your|aditya|tips|advice|should|improve)\b/i.test(extractedSummary);
             
             if (!hasBlockedContent && extractedSummary.length > 20) {
@@ -154,13 +159,15 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             }
         }
         
+        // ✅ Return percentage-based score
         const finalData = {
-            matchScore: Math.round(matchScore),
+            matchScore: matchScore, // Now it's 80 instead of 8
             missingKeywords: missingKeywords,
             summary: summary
         };
         
         console.log(`--- Final Parsed Data ---`);
+        console.log(`Match Score: ${finalData.matchScore}%`); // Shows "80%"
         console.log(JSON.stringify(finalData, null, 2));
         
         res.json(finalData);
