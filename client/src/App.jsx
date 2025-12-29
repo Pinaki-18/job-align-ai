@@ -31,7 +31,7 @@ function App() {
 
     try {
       // 1. Analyze Resume
-      const res = await axios.post('http://localhost:5001/analyze', formData);
+      const res = await axios.post('https://job-align-ai.onrender.com', formData);
       setResult(res.data);
 
       // 2. Fetch Jobs (Try Real API, Fallback to Mock)
@@ -51,7 +51,7 @@ function App() {
   const fetchJobs = async (query) => {
     try {
       // Try to hit the Real API
-      const res = await axios.get(`http://localhost:5001/search-jobs?query=${encodeURIComponent(query)}`);
+      const res = await axios.get(`https://job-align-ai.onrender.com/search-jobs?query=${encodeURIComponent(query)}`);
       
       if (res.data && res.data.length > 0) {
         // If Real Jobs found, use them
