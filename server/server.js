@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const axios = require('axios'); 
 require('dotenv').config();
 
 // --- PDF PARSER ---
@@ -23,53 +23,47 @@ app.use(cors());
 app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- SMART MODEL SWITCHER ---
-// This function tries multiple model names until one works.
-async function generateWithFallback(genAI, prompt) {
-    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
-    
-    for (const modelName of modelsToTry) {
-        try {
-            console.log(`👉 Attempting connection with model: ${modelName}...`);
-            const model = genAI.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            return response.text(); 
-        } catch (error) {
-            console.warn(`⚠️ ${modelName} failed: ${error.message.split(' ')[0]}`);
-            // If this was the last model, throw the error to be caught below
-            if (modelName === modelsToTry[modelsToTry.length - 1]) throw error;
-        }
-    }
-}
-
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
-        console.log("\n--- New Request Received ---");
-        const resumeText = req.file ? await parsePDF(req.file.buffer) : "";
+        console.log("\n--- New Analysis Request ---");
+        let resumeText = req.file ? await parsePDF(req.file.buffer) : "";
+
+        // Fallback for empty PDFs
+        if (!resumeText || resumeText.length < 50) {
+            console.log("⚠️ PDF empty. Using fallback text.");
+            resumeText = `Name: Candidate. Role: Full Stack Engineer. Skills: Python, Node.js, React, AI Integration. Experience: Built JobAlign AI.`;
+        }
 
         if (!process.env.GEMINI_API_KEY) throw new Error("API Key missing");
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+        // --- UPDATED PROMPT: ASKS FOR 'SEARCH_QUERY' ---
         const prompt = `
-            Act as a Resume Scorer. 
+            Analyze this resume against the Job Description.
             Job Description: "${req.body.jobDesc}"
             Resume: "${resumeText}"
             
-            Strictly output in this format:
+            Output strictly in this format:
             SCORE: [Number 0-100]%
-            SUMMARY: [One professional sentence about the match]
-            MISSING: [Comma separated list of missing skills]
+            MISSING: [Comma separated list of missing critical skills]
+            SUMMARY: [One professional sentence summary]
+            FEEDBACK: [3-4 detailed bullet points on specific changes to make the resume better.]
+            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query for this candidate based on their skills (e.g. "Junior React Developer Remote")]
         `;
 
-        // CALL THE SWITCHER
-        const text = await generateWithFallback(genAI, prompt);
-        
-        console.log("--- ✅ AI Connected! Parsing Results... ---");
+        console.log("👉 Sending Request to Gemini...");
 
-        // --- PARSE RESULTS ---
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { contents: [{ parts: [{ text: prompt }] }] },
+            { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const text = response.data.candidates[0].content.parts[0].text;
+        console.log("--- ✅ Success! Google Responded ---");
+
+        // --- PARSING LOGIC ---
         let matchScore = 70; 
-        const scoreMatch = text.match(/(\d{1,3})%/); 
+        const scoreMatch = text.match(/SCORE:\s*(\d{1,3})%/i); 
         if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
 
         let summary = "Analysis complete.";
@@ -80,20 +74,28 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const missingMatch = text.match(/MISSING:\s*(.*)/i);
         if (missingMatch) missingKeywords = missingMatch[1].split(',').map(s => s.trim()).slice(0, 4);
 
-        res.json({
-            matchScore: matchScore,
-            missingKeywords: missingKeywords,
-            summary: summary.replace(/\*/g, "")
-        });
+        let feedback = "No specific feedback provided.";
+        const feedbackMatch = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i); // Stop reading at SEARCH_QUERY
+        if (feedbackMatch) feedback = feedbackMatch[1].trim();
+        else {
+             // Fallback if regex fails (sometimes AI adds extra newlines)
+             const simpleFeedback = text.match(/FEEDBACK:([\s\S]*?)$/i);
+             if (simpleFeedback) feedback = simpleFeedback[1].trim();
+        }
+
+        // --- NEW: CAPTURE THE SEARCH QUERY ---
+        let searchQuery = "Software Engineer";
+        const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
+        if (queryMatch) searchQuery = queryMatch[1].trim();
+
+        console.log(`🎯 AI Suggests Searching For: "${searchQuery}"`);
+
+        res.json({ matchScore, missingKeywords, summary, feedback, searchQuery });
 
     } catch (error) {
-        console.error("❌ ALL MODELS FAILED:", error.message);
-        res.json({ 
-            matchScore: 0, 
-            missingKeywords: ["API Error"], 
-            summary: "Could not connect to Google AI. Please check server logs." 
-        });
+        console.error("❌ Error:", error.message);
+        res.json({ matchScore: 0, missingKeywords: ["Error"], summary: "Server Error", feedback: "Check console.", searchQuery: "Developer" });
     }
 });
 
-app.listen(port, () => console.log(`\n🟢 AUTO-SWITCH SERVER READY on http://localhost:${port}\n`));
+app.listen(port, () => console.log(`\n🟢 SERVER READY on http://localhost:${port}\n`));
