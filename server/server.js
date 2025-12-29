@@ -27,17 +27,12 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
         console.log("\n--- New Analysis Request ---");
         
-        // 1. Parse PDF
         let resumeText = req.file ? await parsePDF(req.file.buffer) : "";
         if (!resumeText || resumeText.length < 50) {
-            console.log("⚠️ PDF empty. Using fallback text.");
             resumeText = `Name: Candidate. Role: Software Engineer.`;
         }
 
-        // 2. Check API Key
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("API Key is missing on Server");
-        }
+        if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing");
 
         const prompt = `
             Analyze this resume against the Job Description.
@@ -48,28 +43,25 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
             SCORE: [Number 0-100]%
             MISSING: [Comma separated list of missing critical skills]
             SUMMARY: [One professional sentence summary]
-            FEEDBACK: [3-4 detailed bullet points on specific changes]
-            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query (e.g. "Junior React Developer Remote")]
+            FEEDBACK: [3-4 detailed bullet points]
+            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query]
         `;
 
         console.log("👉 Sending Request to Gemini...");
 
-        // ⚠️ FIXED: Using 'gemini-1.5-flash' which is STABLE for free keys
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
             { contents: [{ parts: [{ text: prompt }] }] },
             { headers: { 'Content-Type': 'application/json' } }
         );
 
-        // 3. Safety Check: Did Google answer?
         if (!response.data.candidates || response.data.candidates.length === 0) {
-             throw new Error("Google AI returned no results (Blocked/Safety).");
+             throw new Error("Google AI returned no results.");
         }
 
         const text = response.data.candidates[0].content.parts[0].text;
         console.log("--- ✅ Success! Google Responded ---");
 
-        // 4. Parse the Answer
         let matchScore = 70; 
         const scoreMatch = text.match(/SCORE:\s*(\d{1,3})%/i); 
         if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
@@ -94,27 +86,27 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
         if (queryMatch) searchQuery = queryMatch[1].trim();
 
-        // 5. Send Response
-        res.json({ matchScore, missingKeywords, summary, feedback, searchQuery });
+        // ⚠️ FIXED: Added "jobs: []" so Frontend doesn't crash
+        res.json({ 
+            matchScore, 
+            missingKeywords, 
+            summary, 
+            feedback, 
+            searchQuery,
+            jobs: [] // <--- This prevents the blank screen crash
+        });
 
     } catch (error) {
         console.error("❌ Error:", error.message);
-        console.error("❌ Stack:", error.response ? JSON.stringify(error.response.data) : error);
-        
-        // Return a SAFE response so the screen doesn't go blank
         res.json({ 
             matchScore: 10, 
-            missingKeywords: ["Error with AI Service"], 
+            missingKeywords: ["Error with AI"], 
             summary: "Analysis Failed", 
-            feedback: "The AI service is currently busy or the API key is invalid. Please try again.", 
-            searchQuery: "Developer" 
+            feedback: "Please try again later.", 
+            searchQuery: "Developer",
+            jobs: [] // <--- Safety for error cases too
         });
     }
-});
-
-// Keep your existing job search route
-app.get('/search-jobs', async (req, res) => {
-    res.json([]); 
 });
 
 app.listen(port, () => console.log(`\n🟢 SERVER READY on http://localhost:${port}\n`));
