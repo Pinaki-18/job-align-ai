@@ -14,17 +14,21 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* ---------------- GEMINI SDK ---------------- */
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+/* ---------------- GEMINI (FORCE v1) ---------------- */
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY, {
+  apiVersion: "v1", // 🔴 THIS IS CRITICAL
+});
+
 const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-pro",
+  model: "models/gemini-1.5-pro-001", // 🔴 FULL VERSIONED ID
 });
 
 /* ---------------- PROOF ---------------- */
 app.get("/whoami", (req, res) => {
   res.json({
-    backend: "RENDER-BACKEND-V4-SDK",
-    model: "gemini-1.5-pro (SDK)",
+    backend: "RENDER-BACKEND-V5-FINAL",
+    apiVersion: "v1",
+    model: "models/gemini-1.5-pro-001",
     time: new Date().toISOString(),
   });
 });
@@ -32,7 +36,7 @@ app.get("/whoami", (req, res) => {
 /* ---------------- ANALYZE ---------------- */
 app.post("/analyze", upload.single("resume"), async (req, res) => {
   try {
-    console.log("🔥 /analyze HIT (SDK)");
+    console.log("🔥 /analyze HIT (FINAL)");
 
     const jobDesc = req.body.jobDesc || "Software Engineer";
 
@@ -42,7 +46,8 @@ You are an expert HR recruiter.
 JOB DESCRIPTION:
 ${jobDesc}
 
-Give:
+Give output EXACTLY as:
+
 SCORE: <0-100>%
 MISSING: <skills>
 SUMMARY:
@@ -53,23 +58,23 @@ SEARCH_QUERY:
     const result = await model.generateContent(prompt);
     const text = result.response.text();
 
-    console.log("✅ Gemini SDK responded");
+    console.log("✅ GEMINI RESPONDED");
 
     return res.json({
-      matchScore: 70,
-      missingKeywords: ["Example"],
-      summary: "Gemini SDK working",
+      matchScore: 75,
+      missingKeywords: ["Sample"],
+      summary: "Gemini is finally working",
       feedback: text,
       searchQuery: "Software Engineer",
       jobs: [],
     });
   } catch (err) {
-    console.error("❌ SDK ERROR:", err.message);
+    console.error("❌ FINAL ERROR:", err.message);
 
     return res.json({
       matchScore: 10,
       missingKeywords: ["SDK_ERROR"],
-      summary: "Gemini SDK failed",
+      summary: "Gemini failed",
       feedback: err.message,
       searchQuery: "Job Search",
       jobs: [],
@@ -79,5 +84,5 @@ SEARCH_QUERY:
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING (SDK MODE)");
+  console.log("🟢 SERVER RUNNING (FINAL FIX)");
 });
