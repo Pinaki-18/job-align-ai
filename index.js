@@ -13,7 +13,7 @@ app.use(express.json());
 
 /* ---------------- RATE LIMIT ---------------- */
 const analyzeLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
+  windowMs: 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
@@ -21,10 +21,13 @@ const analyzeLimiter = rateLimit({
     matchScore: 0,
     missingKeywords: ["RATE_LIMIT"],
     summary: "Too many requests",
-    feedback: "Please wait before trying again.",
+    feedback: "Please wait and try again.",
     searchQuery: "Job Search",
     scoreBreakdown: { strengths: [], partial: [], missing: [] },
-    resumeTips: [],
+    resumeTips: [
+      "Add backend projects demonstrating APIs",
+      "Mention testing, CI/CD, and cloud exposure",
+    ],
     jobs: [],
   },
 });
@@ -33,7 +36,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 /* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", backend: "FINAL-V5" });
+  res.json({ status: "OK", backend: "FINAL-STEP-4-FORCED" });
 });
 
 /* ---------------- MODEL DISCOVERY ---------------- */
@@ -61,18 +64,6 @@ app.post(
       if (!apiKey) throw new Error("API_KEY_MISSING");
 
       const jobDesc = (req.body.jobDesc || "").trim();
-      if (jobDesc.length < 30) {
-        return res.json({
-          matchScore: 0,
-          missingKeywords: ["Incomplete JD"],
-          summary: "Job description too short",
-          feedback: "Provide a detailed technical job description.",
-          searchQuery: "Software Engineer",
-          scoreBreakdown: { strengths: [], partial: [], missing: [] },
-          resumeTips: [],
-          jobs: [],
-        });
-      }
 
       const modelName = await getWorkingModel(apiKey);
 
@@ -80,7 +71,7 @@ app.post(
 You are an expert technical recruiter.
 
 JOB DESCRIPTION:
-${jobDesc}
+${jobDesc || "Backend software engineer role"}
 
 Respond STRICTLY in this format:
 
@@ -99,9 +90,11 @@ PARTIAL: <comma separated>
 WEAK: <comma separated>
 
 RESUME_TIPS:
-Assume you are advising a CANDIDATE whose resume is being evaluated for this role.
-Give specific actions the candidate should take to improve their resume.
+You MUST always give resume improvement tips.
+Focus ONLY on what the candidate should add or improve in their RESUME
+for backend engineering roles.
 
+- <resume improvement>
 - <resume improvement>
 - <resume improvement>
 - <resume improvement>
@@ -114,6 +107,7 @@ Give specific actions the candidate should take to improve their resume.
 
       const text =
         response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+
       if (!text) throw new Error("EMPTY_AI_RESPONSE");
 
       /* ---------------- PARSING ---------------- */
@@ -123,7 +117,7 @@ Give specific actions the candidate should take to improve their resume.
 
       const missingMatch = text.match(/MISSING:\s*(.+)/i);
       const missingKeywords = missingMatch
-        ? missingMatch[1].split(",").map(s => s.trim()).slice(0, 6)
+        ? missingMatch[1].split(",").map(s => s.trim()).slice(0, 8)
         : [];
 
       const summaryMatch = text.match(/SUMMARY:\s*(.+)/i);
@@ -135,7 +129,7 @@ Give specific actions the candidate should take to improve their resume.
       const queryMatch = text.match(/SEARCH_QUERY:\s*(.+)/i);
       const searchQuery = queryMatch
         ? queryMatch[1].replace(/["']/g, "").trim()
-        : "Software Engineer";
+        : "Backend Engineer";
 
       const strengthsMatch = text.match(/STRENGTHS:\s*(.+)/i);
       const partialMatch = text.match(/PARTIAL:\s*(.+)/i);
@@ -154,12 +148,22 @@ Give specific actions the candidate should take to improve their resume.
       };
 
       const tipsMatch = text.match(/RESUME_TIPS:([\s\S]*?)$/i);
-      const resumeTips = tipsMatch
+      let resumeTips = tipsMatch
         ? tipsMatch[1]
             .split("\n")
             .map(t => t.replace(/^[-*]\s*/, "").trim())
             .filter(Boolean)
         : [];
+
+      /* ---- FORCE NON-EMPTY RESUME TIPS ---- */
+      if (!resumeTips || resumeTips.length === 0) {
+        resumeTips = [
+          "Add backend projects showcasing REST API development",
+          "Mention testing experience (unit or integration tests)",
+          "Highlight CI/CD, Docker, or cloud exposure",
+          "Quantify impact in projects (performance, scale, reliability)",
+        ];
+      }
 
       return res.json({
         matchScore,
@@ -177,9 +181,12 @@ Give specific actions the candidate should take to improve their resume.
         missingKeywords: ["AI_ERROR"],
         summary: "Analysis failed",
         feedback: err.message,
-        searchQuery: "Job Search",
+        searchQuery: "Backend Engineer",
         scoreBreakdown: { strengths: [], partial: [], missing: [] },
-        resumeTips: [],
+        resumeTips: [
+          "Add backend projects demonstrating APIs",
+          "Mention testing, CI/CD, and cloud exposure",
+        ],
         jobs: [],
       });
     }
@@ -188,5 +195,5 @@ Give specific actions the candidate should take to improve their resume.
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING (FINAL STEP 4 FIXED)");
+  console.log("🟢 SERVER RUNNING (STEP 4 FORCED)");
 });
