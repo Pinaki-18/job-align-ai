@@ -21,8 +21,7 @@ const analyzeLimiter = rateLimit({
     matchScore: 0,
     missingKeywords: ["RATE_LIMIT"],
     summary: "Too many requests",
-    feedback:
-      "You are sending requests too quickly. Please wait a minute and try again.",
+    feedback: "Please wait before trying again.",
     searchQuery: "Job Search",
     scoreBreakdown: { strengths: [], partial: [], missing: [] },
     resumeTips: [],
@@ -34,20 +33,20 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 /* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", backend: "FINAL-POLISHED-V4" });
+  res.json({ status: "OK", backend: "FINAL-V5" });
 });
 
 /* ---------------- MODEL DISCOVERY ---------------- */
 async function getWorkingModel(apiKey) {
-  const listUrl = `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`;
-  const res = await axios.get(listUrl);
+  const res = await axios.get(
+    `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+  );
 
   const model = res.data.models.find(m =>
     m.supportedGenerationMethods?.includes("generateContent")
   );
 
   if (!model) throw new Error("NO_SUPPORTED_MODEL");
-
   return model.name;
 }
 
@@ -62,23 +61,15 @@ app.post(
       if (!apiKey) throw new Error("API_KEY_MISSING");
 
       const jobDesc = (req.body.jobDesc || "").trim();
-
       if (jobDesc.length < 30) {
         return res.json({
           matchScore: 0,
-          missingKeywords: ["Provide a detailed job description"],
-          summary: "Job description too short.",
-          feedback:
-            "Please provide responsibilities, skills, and experience requirements.",
+          missingKeywords: ["Incomplete JD"],
+          summary: "Job description too short",
+          feedback: "Provide a detailed technical job description.",
           searchQuery: "Software Engineer",
-          scoreBreakdown: {
-            strengths: [],
-            partial: [],
-            missing: ["Insufficient job description"],
-          },
-          resumeTips: [
-            "Provide a complete job description before analyzing resumes",
-          ],
+          scoreBreakdown: { strengths: [], partial: [], missing: [] },
+          resumeTips: [],
           jobs: [],
         });
       }
@@ -94,7 +85,7 @@ ${jobDesc}
 Respond STRICTLY in this format:
 
 SCORE: <0-100>%
-MISSING: <comma separated skills>
+MISSING: <comma separated>
 SUMMARY: <one sentence>
 FEEDBACK:
 - <point>
@@ -108,20 +99,21 @@ PARTIAL: <comma separated>
 WEAK: <comma separated>
 
 RESUME_TIPS:
-- <specific resume improvement>
-- <specific resume improvement>
-- <specific resume improvement>
+Assume you are advising a CANDIDATE whose resume is being evaluated for this role.
+Give specific actions the candidate should take to improve their resume.
+
+- <resume improvement>
+- <resume improvement>
+- <resume improvement>
 `;
 
-      const url = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${apiKey}`;
-
-      const response = await axios.post(url, {
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${apiKey}`,
+        { contents: [{ role: "user", parts: [{ text: prompt }] }] }
+      );
 
       const text =
         response.data.candidates?.[0]?.content?.parts?.[0]?.text;
-
       if (!text) throw new Error("EMPTY_AI_RESPONSE");
 
       /* ---------------- PARSING ---------------- */
@@ -135,21 +127,16 @@ RESUME_TIPS:
         : [];
 
       const summaryMatch = text.match(/SUMMARY:\s*(.+)/i);
-      const summary = summaryMatch
-        ? summaryMatch[1].trim()
-        : "Analysis complete.";
+      const summary = summaryMatch ? summaryMatch[1].trim() : "";
 
       const feedbackMatch = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i);
-      const feedback = feedbackMatch
-        ? feedbackMatch[1].trim()
-        : "Improve alignment with the job description.";
+      const feedback = feedbackMatch ? feedbackMatch[1].trim() : "";
 
       const queryMatch = text.match(/SEARCH_QUERY:\s*(.+)/i);
       const searchQuery = queryMatch
         ? queryMatch[1].replace(/["']/g, "").trim()
         : "Software Engineer";
 
-      /* ---------------- SCORE BREAKDOWN ---------------- */
       const strengthsMatch = text.match(/STRENGTHS:\s*(.+)/i);
       const partialMatch = text.match(/PARTIAL:\s*(.+)/i);
       const weakMatch = text.match(/WEAK:\s*(.+)/i);
@@ -166,9 +153,7 @@ RESUME_TIPS:
           : [],
       };
 
-      /* ---------------- RESUME TIPS (STEP 4) ---------------- */
       const tipsMatch = text.match(/RESUME_TIPS:([\s\S]*?)$/i);
-
       const resumeTips = tipsMatch
         ? tipsMatch[1]
             .split("\n")
@@ -194,9 +179,7 @@ RESUME_TIPS:
         feedback: err.message,
         searchQuery: "Job Search",
         scoreBreakdown: { strengths: [], partial: [], missing: [] },
-        resumeTips: [
-          "Ensure the resume clearly lists relevant frameworks and tools",
-        ],
+        resumeTips: [],
         jobs: [],
       });
     }
@@ -205,5 +188,5 @@ RESUME_TIPS:
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING (FINAL POLISHED STEP 4)");
+  console.log("🟢 SERVER RUNNING (FINAL STEP 4 FIXED)");
 });
