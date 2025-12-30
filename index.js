@@ -32,7 +32,7 @@ async function parsePDF(buffer) {
 const app = express();
 const port = process.env.PORT || 10000;
 
-// CORS - IMPORTANT: Add your actual Vercel URL here
+// CORS - Add your actual Vercel URL
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -141,10 +141,10 @@ Rules:
 
     console.log("📤 Calling Gemini API...");
 
-    // 5. Call Gemini API - FIXED MODEL NAME
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${apiKey}`;
+    // 5. Call Gemini API - CORRECT MODEL: gemini-1.5-flash-latest
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
     
-    console.log("🔗 API Endpoint:", geminiUrl.replace(apiKey, 'API_KEY_HIDDEN'));
+    console.log("🔗 Using model: gemini-1.5-flash-latest");
 
     const response = await axios.post(
       geminiUrl,
@@ -154,14 +154,16 @@ Rules:
         }],
         generationConfig: {
           temperature: 0.7,
-          maxOutputTokens: 1024
+          maxOutputTokens: 2048,
+          topP: 0.8,
+          topK: 40
         }
       },
       { 
         headers: { 
           'Content-Type': 'application/json'
         },
-        timeout: 25000
+        timeout: 30000
       }
     );
 
@@ -189,14 +191,14 @@ Rules:
     }
 
     let summary = "Resume analyzed successfully";
-    const summaryMatch = aiText.match(/SUMMARY:\s*(.+?)(?=\n|$)/i);
+    const summaryMatch = aiText.match(/SUMMARY:\s*(.+?)(?=\n|MISSING:|FEEDBACK:|$)/i);
     if (summaryMatch) {
       summary = summaryMatch[1].trim();
       console.log(`✅ Summary parsed`);
     }
 
     let missingKeywords = [];
-    const missingMatch = aiText.match(/MISSING:\s*(.+?)(?=\n|$)/i);
+    const missingMatch = aiText.match(/MISSING:\s*(.+?)(?=\n|SUMMARY:|FEEDBACK:|SEARCH_QUERY:|$)/i);
     if (missingMatch) {
       missingKeywords = missingMatch[1]
         .split(',')
@@ -251,6 +253,11 @@ Rules:
     if (error.response) {
       console.error("API Status:", error.response.status);
       console.error("API Error:", JSON.stringify(error.response.data, null, 2));
+      
+      // Check for specific Gemini errors
+      if (error.response.data?.error?.message) {
+        console.error("Gemini Error Details:", error.response.data.error.message);
+      }
     }
     
     if (error.code === 'ECONNABORTED') {
@@ -261,19 +268,28 @@ Rules:
       console.error("🌐 DNS Error - Cannot reach API");
     }
     
+    console.error("Stack:", error.stack);
     console.error("========================================\n");
 
     const statusCode = error.response?.status || 500;
-    const errorMessage = error.response?.data?.error?.message 
+    let errorMessage = error.response?.data?.error?.message 
       || error.message 
       || "Unknown server error";
+
+    // Provide helpful hints based on error
+    let hint = undefined;
+    if (errorMessage.includes('API key not valid')) {
+      hint = "Invalid API key. Check your Gemini API key in Render environment variables.";
+    } else if (errorMessage.includes('not found') || errorMessage.includes('not supported')) {
+      hint = "Model not available. Using gemini-1.5-flash-latest.";
+    } else if (errorMessage.includes('quota')) {
+      hint = "API quota exceeded. Check your Google Cloud billing.";
+    }
 
     res.status(statusCode).json({
       error: "Analysis failed",
       message: errorMessage,
-      hint: error.response?.data?.error?.message?.includes('not found') 
-        ? "Check API model name and version"
-        : undefined
+      hint: hint
     });
   }
 });
@@ -310,5 +326,6 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🔗 Render URL: https://job-align-ai.onrender.com`);
   console.log(`📅 Time: ${new Date().toLocaleString()}`);
   console.log(`🔑 API Key: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '❌ MISSING'}`);
+  console.log(`🤖 Model: gemini-1.5-flash-latest`);
   console.log("========================================\n");
 });
