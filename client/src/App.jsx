@@ -3,7 +3,6 @@ import { useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-// BACKEND URL
 const API_URL =
   process.env.REACT_APP_API_URL || "https://job-align-ai.onrender.com";
 
@@ -47,11 +46,9 @@ function App() {
 
       const parsedResult = {
         matchScore: Number(res.data.matchScore) || 0,
-        missingKeywords: Array.isArray(res.data.missingKeywords)
-          ? res.data.missingKeywords
-          : [],
-        summary: res.data.summary || "Analysis complete",
-        feedback: res.data.feedback || "No feedback available",
+        missingKeywords: res.data.missingKeywords || [],
+        summary: res.data.summary || "",
+        feedback: res.data.feedback || "",
         searchQuery: res.data.searchQuery || "",
         resumeTips: res.data.resumeTips || [],
         scoreBreakdown: res.data.scoreBreakdown || {
@@ -63,7 +60,7 @@ function App() {
 
       setResult(parsedResult);
 
-      // ================= STEP 5: SAVE ANALYSIS =================
+      // 🔥 STEP 5: SAVE ANALYSIS
       const saveRes = await axios.post(
         `${API_URL}/save-analysis`,
         parsedResult
@@ -72,7 +69,6 @@ function App() {
       setShareLink(
         `${window.location.origin}${saveRes.data.shareUrl}`
       );
-      // =========================================================
 
       if (parsedResult.searchQuery) {
         await fetchJobs(parsedResult.searchQuery);
@@ -80,11 +76,7 @@ function App() {
         useMockJobs("Software Engineer");
       }
     } catch (err) {
-      let msg = "Server Error. Please try again.";
-      if (err.code === "ECONNABORTED") msg = "⏱️ Request timeout.";
-      else if (err.response)
-        msg = err.response.data?.error || msg;
-      setError(`❌ ${msg}`);
+      setError("❌ Analysis failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -106,11 +98,10 @@ function App() {
   };
 
   const useMockJobs = query => {
-    const title = query || "Developer";
     setJobs([
       {
         id: 1,
-        title: `Senior ${title}`,
+        title: `Senior ${query}`,
         company: "Google (Demo)",
         location: "Bangalore",
         type: "Full-time",
@@ -118,7 +109,7 @@ function App() {
       },
       {
         id: 2,
-        title: `${title} (Remote)`,
+        title: `${query} (Remote)`,
         company: "Netflix (Demo)",
         location: "Remote",
         type: "Contract",
@@ -130,31 +121,37 @@ function App() {
   return (
     <div className="container">
       <header>
+        <div className="logo-container">
+          <span className="logo-icon">🚀</span>
+        </div>
         <h1>JobAlign AI</h1>
-        <p>AI-Powered Resume Scorer</p>
+        <p className="subtitle">AI-Powered Resume Scorer & Headhunter</p>
+        <div className="powered-badge">Powered by Gemini AI ✨</div>
       </header>
 
-      <textarea
-        placeholder="Paste Job Description"
-        value={jobDesc}
-        onChange={e => setJobDesc(e.target.value)}
-      />
+      <div className="upload-section">
+        <textarea
+          placeholder="Paste Job Description"
+          value={jobDesc}
+          onChange={e => setJobDesc(e.target.value)}
+        />
 
-      <input type="file" accept=".pdf" onChange={handleFileChange} />
+        <input type="file" accept=".pdf" onChange={handleFileChange} />
 
-      {error && <div className="error-box">{error}</div>}
+        {error && <div className="error-box">{error}</div>}
 
-      <button onClick={handleUpload} disabled={loading}>
-        {loading ? "Analyzing..." : "Analyze"}
-      </button>
+        <button onClick={handleUpload} disabled={loading}>
+          {loading ? "Analyzing..." : "Analyze"}
+        </button>
 
-      {/* STEP 5 SHARE LINK */}
-      {shareLink && (
-        <div className="share-box">
-          <p>🔗 Share this analysis:</p>
-          <input value={shareLink} readOnly />
-        </div>
-      )}
+        {/* STEP 5 SHARE LINK */}
+        {shareLink && (
+          <div className="share-box">
+            <p>🔗 Share this analysis:</p>
+            <input value={shareLink} readOnly />
+          </div>
+        )}
+      </div>
 
       {result && <Result result={result} />}
 
@@ -162,8 +159,8 @@ function App() {
         <div className="job-section">
           <h3>Recommended Jobs</h3>
           {jobs.map(job => (
-            <div key={job.id}>
-              <b>{job.title}</b> — {job.company}
+            <div key={job.id} className="job-card">
+              <strong>{job.title}</strong> — {job.company}
               <a href={job.link} target="_blank" rel="noreferrer">
                 Apply
               </a>
