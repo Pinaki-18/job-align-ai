@@ -11,6 +11,7 @@ const port = process.env.PORT || 10000;
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 
+/* ---------------- RATE LIMIT ---------------- */
 const analyzeLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 20,
@@ -23,6 +24,8 @@ const analyzeLimiter = rateLimit({
     feedback:
       "You are sending requests too quickly. Please wait a minute and try again.",
     searchQuery: "Job Search",
+    scoreBreakdown: { strengths: [], partial: [], missing: [] },
+    resumeTips: [],
     jobs: [],
   },
 });
@@ -31,7 +34,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 /* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", backend: "FINAL-POLISHED" });
+  res.json({ status: "OK", backend: "FINAL-POLISHED-V4" });
 });
 
 /* ---------------- MODEL DISCOVERY ---------------- */
@@ -66,13 +69,16 @@ app.post(
           missingKeywords: ["Provide a detailed job description"],
           summary: "Job description too short.",
           feedback:
-            "Please enter a full job description including responsibilities, required skills, and experience.",
+            "Please provide responsibilities, skills, and experience requirements.",
           searchQuery: "Software Engineer",
           scoreBreakdown: {
             strengths: [],
             partial: [],
-            missing: ["Job description too short"],
+            missing: ["Insufficient job description"],
           },
+          resumeTips: [
+            "Provide a complete job description before analyzing resumes",
+          ],
           jobs: [],
         });
       }
@@ -80,12 +86,12 @@ app.post(
       const modelName = await getWorkingModel(apiKey);
 
       const prompt = `
-You are an expert HR recruiter.
+You are an expert technical recruiter.
 
 JOB DESCRIPTION:
 ${jobDesc}
 
-Respond EXACTLY in this format:
+Respond STRICTLY in this format:
 
 SCORE: <0-100>%
 MISSING: <comma separated skills>
@@ -100,6 +106,11 @@ BREAKDOWN:
 STRENGTHS: <comma separated>
 PARTIAL: <comma separated>
 WEAK: <comma separated>
+
+RESUME_TIPS:
+- <specific resume improvement>
+- <specific resume improvement>
+- <specific resume improvement>
 `;
 
       const url = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${apiKey}`;
@@ -138,7 +149,7 @@ WEAK: <comma separated>
         ? queryMatch[1].replace(/["']/g, "").trim()
         : "Software Engineer";
 
-      /* -------- BREAKDOWN PARSING (THIS WAS MISSING) -------- */
+      /* ---------------- SCORE BREAKDOWN ---------------- */
       const strengthsMatch = text.match(/STRENGTHS:\s*(.+)/i);
       const partialMatch = text.match(/PARTIAL:\s*(.+)/i);
       const weakMatch = text.match(/WEAK:\s*(.+)/i);
@@ -155,6 +166,16 @@ WEAK: <comma separated>
           : [],
       };
 
+      /* ---------------- RESUME TIPS (STEP 4) ---------------- */
+      const tipsMatch = text.match(/RESUME_TIPS:([\s\S]*?)$/i);
+
+      const resumeTips = tipsMatch
+        ? tipsMatch[1]
+            .split("\n")
+            .map(t => t.replace(/^[-*]\s*/, "").trim())
+            .filter(Boolean)
+        : [];
+
       return res.json({
         matchScore,
         missingKeywords,
@@ -162,6 +183,7 @@ WEAK: <comma separated>
         feedback,
         searchQuery,
         scoreBreakdown,
+        resumeTips,
         jobs: [],
       });
     } catch (err) {
@@ -171,11 +193,10 @@ WEAK: <comma separated>
         summary: "Analysis failed",
         feedback: err.message,
         searchQuery: "Job Search",
-        scoreBreakdown: {
-          strengths: [],
-          partial: [],
-          missing: ["System error"],
-        },
+        scoreBreakdown: { strengths: [], partial: [], missing: [] },
+        resumeTips: [
+          "Ensure the resume clearly lists relevant frameworks and tools",
+        ],
         jobs: [],
       });
     }
@@ -184,5 +205,5 @@ WEAK: <comma separated>
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING (FINAL POLISHED)");
+  console.log("🟢 SERVER RUNNING (FINAL POLISHED STEP 4)");
 });
