@@ -4,7 +4,7 @@ const multer = require('multer');
 const axios = require('axios'); 
 require('dotenv').config();
 
-// PDF PARSER
+// --- PDF PARSER SETUP ---
 let pdfParseLib;
 try { 
   pdfParseLib = require('pdf-parse'); 
@@ -14,17 +14,13 @@ try {
 }
 
 async function parsePDF(buffer) {
-  if (!pdfParseLib) {
-    console.warn("⚠️ PDF parser not available");
-    return "";
-  }
+  if (!pdfParseLib) return "";
   try {
     const parser = typeof pdfParseLib === 'function' ? pdfParseLib : pdfParseLib.default;
     const data = await parser(buffer);
-    console.log(`✅ PDF parsed: ${data.text.length} chars`);
     return data.text;
   } catch (err) {
-    console.error("❌ PDF parse failed:", err.message);
+    console.error("❌ PDF Parsing Failed:", err.message);
     return "";
   }
 }
@@ -32,12 +28,11 @@ async function parsePDF(buffer) {
 const app = express();
 const port = process.env.PORT || 10000;
 
-// CORS - Add your actual Vercel URL
 app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5173',
-    'https://job-align-ai.vercel.app', // Your Vercel URL
+    'https://job-align-ai.vercel.app', 
     /\.vercel\.app$/ 
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -54,99 +49,90 @@ const upload = multer({
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ 
-    status: '🟢 Server running on Render',
-    timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!process.env.GEMINI_API_KEY
-  });
+  res.json({ status: '🟢 Server Online', timestamp: new Date().toISOString() });
 });
 
-// Main analysis endpoint
+// --- MAIN ANALYZE ENDPOINT ---
 app.post('/analyze', upload.single('resume'), async (req, res) => {
   try {
     console.log("\n========================================");
-    console.log("🔥 NEW REQUEST");
+    console.log("🔥 PROCESSING NEW REQUEST");
 
-    // 1. Validate & CLEAN API Key (FIXED HERE 🛠️)
+    // 1. CLEAN THE API KEY (Fixes the 404 error)
     let apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) apiKey = apiKey.trim(); // <--- REMOVES INVISIBLE SPACES
+    if (apiKey) apiKey = apiKey.trim(); 
 
     if (!apiKey) {
-      console.error("❌ CRITICAL: No API Key");
-      return res.status(500).json({ error: "Server configuration error" });
+      throw new Error("API Key is missing in Render Environment Variables");
     }
-    
-    console.log(`✅ API Key configured (${apiKey.length} chars)`);
 
-    // 2. Validate Inputs
+    // 2. PREPARE DATA
     const jobDesc = req.body.jobDesc || "Software Engineer";
-    
-    // 3. Parse PDF
     let resumeText = "";
+    
     if (req.file && req.file.buffer) {
-        resumeText = await parsePDF(req.file.buffer);
+      resumeText = await parsePDF(req.file.buffer);
     }
 
     if (!resumeText || resumeText.length < 50) {
-      resumeText = "Professional with software engineering experience. Skilled in programming.";
+      console.log("⚠️ PDF empty or unreadable. Using fallback text.");
+      resumeText = "Candidate Name: User. Skills: Java, Python, React. Experience: Junior Developer.";
     }
 
-    // 4. Build Prompt
-    const prompt = `You are an expert HR recruiter. Analyze this resume against the job description.
+    // 3. GENERATE PROMPT
+    const prompt = `
+      You are an expert HR Recruiter. Analyze this resume against the job description.
+      
+      JOB DESCRIPTION:
+      "${jobDesc}"
+      
+      RESUME:
+      "${resumeText}"
+      
+      Output strictly in this format:
+      SCORE: [Number 0-100]%
+      MISSING: [Comma separated list of 3-5 missing skills]
+      SUMMARY: [One sentence summary]
+      FEEDBACK: [3 specific bullet points]
+      SEARCH_QUERY: [3-4 word job search title]
+    `;
 
-Job Description:
-"""${jobDesc}"""
+    console.log("👉 Sending to Google...");
 
-Resume Content:
-"""${resumeText}"""
-
-Provide your analysis in EXACTLY this format:
-SCORE: [number between 0-100]%
-MISSING: [comma-separated list of 3-5 critical missing skills]
-SUMMARY: [one professional sentence]
-FEEDBACK: [3-5 specific bullet points]
-SEARCH_QUERY: [3-4 word job search term]`;
-
-    console.log("📤 Calling Gemini API...");
-
-    // 5. Call Gemini API - FIXED MODEL NAME 🛠️
-    // Changed 'gemini-1.5-flash-latest' to 'gemini-1.5-flash'
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    
-    console.log("🔗 Using model: gemini-1.5-flash");
-
+    // 4. CALL GOOGLE API (FIXED MODEL NAME HERE)
+    // We switched from 'gemini-1.5-flash-latest' to 'gemini-1.5-flash'
     const response = await axios.post(
-      geminiUrl,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       { 
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: prompt }] }] 
       },
       { 
         headers: { 'Content-Type': 'application/json' },
-        timeout: 30000
+        timeout: 45000 // 45 seconds timeout
       }
     );
 
     const aiText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!aiText) throw new Error("AI returned empty response");
+    if (!aiText) throw new Error("Google returned empty response");
 
-    console.log("✅ AI Response received");
+    console.log("✅ Google Responded!");
 
-    // 7. Parse AI Response
+    // 5. PARSE RESPONSE
     let matchScore = 50;
     const scoreMatch = aiText.match(/SCORE:\s*(\d{1,3})%?/i);
-    if (scoreMatch) matchScore = Math.max(0, Math.min(100, parseInt(scoreMatch[1])));
+    if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
 
-    let summary = "Resume analyzed successfully";
+    let summary = "Analysis complete.";
     const summaryMatch = aiText.match(/SUMMARY:\s*(.+?)(?=\n|MISSING:|FEEDBACK:|$)/i);
     if (summaryMatch) summary = summaryMatch[1].trim();
 
     let missingKeywords = ["General Improvements"];
     const missingMatch = aiText.match(/MISSING:\s*(.+?)(?=\n|SUMMARY:|FEEDBACK:|SEARCH_QUERY:|$)/i);
     if (missingMatch) {
-      missingKeywords = missingMatch[1].split(',').map(s => s.trim()).filter(s => s).slice(0, 6);
+      missingKeywords = missingMatch[1].split(',').map(s => s.trim()).slice(0, 5);
     }
 
-    let feedback = "Continue improving your resume.";
+    let feedback = "Update your resume to match the job description.";
     const feedbackMatch = aiText.match(/FEEDBACK:([\s\S]*?)(?=SEARCH_QUERY:|$)/i);
     if (feedbackMatch) feedback = feedbackMatch[1].trim();
 
@@ -154,23 +140,21 @@ SEARCH_QUERY: [3-4 word job search term]`;
     const queryMatch = aiText.match(/SEARCH_QUERY:\s*(.+?)(?=\n|$)/i);
     if (queryMatch) searchQuery = queryMatch[1].trim().replace(/['"]/g, '');
 
-    const result = { matchScore, missingKeywords, summary, feedback, searchQuery, jobs: [] };
-    console.log(`📊 Final Score: ${matchScore}%`);
-    
-    res.json(result);
+    // 6. SEND SUCCESS
+    res.json({ matchScore, missingKeywords, summary, feedback, searchQuery, jobs: [] });
 
   } catch (error) {
     console.error("❌ ERROR:", error.message);
     if (error.response) console.error("🔍 Google Error:", error.response.data);
-    
-    // Return SAFE response (10%) so app doesn't crash
+
+    // Return 10% SAFE MODE so app doesn't crash
     res.json({ 
-        matchScore: 10, 
-        missingKeywords: ["Error with AI Service"], 
-        summary: "Analysis Failed", 
-        feedback: "The AI service is currently busy. Please try again.", 
-        searchQuery: "Developer",
-        jobs: []
+      matchScore: 10, 
+      missingKeywords: ["Error with AI Service"], 
+      summary: "Analysis Failed. Please try again.", 
+      feedback: "The AI service is currently busy or the API key is invalid.", 
+      searchQuery: "Developer",
+      jobs: []
     });
   }
 });
@@ -178,5 +162,5 @@ SEARCH_QUERY: [3-4 word job search term]`;
 app.get('/search-jobs', async (req, res) => { res.json([]); });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`🟢 SERVER STARTED on Port ${port}`);
+  console.log(`🟢 SERVER READY on Port ${port}`);
 });
