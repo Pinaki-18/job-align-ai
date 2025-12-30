@@ -1,4 +1,4 @@
-import Result from "./components/Result";
+import Result from "./Result";
 import { useState } from 'react';
 import axios from 'axios';
 import './App.css'; 
