@@ -35,24 +35,49 @@ function App() {
       console.log("📤 Uploading to Server...");
       
       // 1. Analyze Resume
-      // We do NOT set manual headers here. Axios handles FormData automatically.
       const res = await axios.post('https://job-align-ai.onrender.com/analyze', formData);
       
-      console.log("📥 Server Response:", res.data);
+      console.log("📥 Full Server Response:", JSON.stringify(res.data, null, 2));
+      console.log("🔍 Response Keys:", Object.keys(res.data));
+      console.log("🔍 Match Score Value:", res.data.matchScore);
+      console.log("🔍 Match Score Type:", typeof res.data.matchScore);
 
-      // Safety Check
-      if (!res.data) throw new Error("Empty response from server");
-      
-      setResult(res.data);
+      // ✅ Enhanced validation
+      if (!res.data || typeof res.data !== 'object') {
+        throw new Error("Invalid response format from server");
+      }
+
+      // ✅ Parse and normalize the response data
+      const parsedResult = {
+        matchScore: Number(res.data.matchScore) || 0,
+        missingKeywords: Array.isArray(res.data.missingKeywords) 
+          ? res.data.missingKeywords 
+          : [],
+        feedback: res.data.feedback || "No feedback available",
+        searchQuery: res.data.searchQuery || ""
+      };
+
+      console.log("✅ Parsed Result:", parsedResult);
+      setResult(parsedResult);
 
       // 2. Fetch Jobs (Safely)
-      if (res.data.searchQuery) {
-        await fetchJobs(res.data.searchQuery);
+      if (parsedResult.searchQuery) {
+        await fetchJobs(parsedResult.searchQuery);
+      } else {
+        // Fallback if no search query provided
+        useMockJobs("Software Engineer");
       }
 
     } catch (err) {
       console.error("❌ Upload Error:", err);
-      setError("❌ Server Error. Please check the Console (F12) for details.");
+      console.error("❌ Error Response:", err.response?.data);
+      console.error("❌ Error Message:", err.message);
+      
+      const errorMsg = err.response?.data?.error 
+        || err.message 
+        || "Server Error. Please check the Console (F12) for details.";
+      
+      setError(`❌ ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -60,14 +85,18 @@ function App() {
 
   const fetchJobs = async (query) => {
     try {
+      console.log("🔍 Fetching jobs for query:", query);
       const res = await axios.get(`https://job-align-ai.onrender.com/search-jobs?query=${encodeURIComponent(query)}`);
+      
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        console.log("✅ Jobs fetched:", res.data.length);
         setJobs(res.data);
       } else {
+        console.warn("⚠️ No jobs returned, using mock data");
         useMockJobs(query);
       }
     } catch (err) {
-      console.warn("Job API failed, switching to demo jobs.");
+      console.warn("⚠️ Job API failed, switching to demo jobs:", err.message);
       useMockJobs(query);
     }
   };
@@ -105,6 +134,8 @@ function App() {
         logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg"
       }
     ];
+    
+    console.log("🎭 Using mock jobs:", mockJobs.length);
     setJobs(mockJobs);
   };
 
