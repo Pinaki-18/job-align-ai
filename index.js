@@ -1,43 +1,52 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
+const axios = require("axios");
 require("dotenv").config();
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-
-/* ---------------- APP ---------------- */
 const app = express();
 const port = process.env.PORT || 10000;
 
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
-
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* ---------------- GEMINI SDK ---------------- */
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// ⚠️ THIS IS THE ONLY MODEL THAT WORKS WITH SDK RIGHT NOW
-const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+/* ---------------- HEALTH ---------------- */
+app.get("/", (req, res) => {
+  res.json({ status: "OK", backend: "REST-v1-STABLE" });
 });
 
-/* ---------------- PROOF ---------------- */
-app.get("/whoami", (req, res) => {
-  res.json({
-    backend: "RENDER-BACKEND-FINAL-SDK",
-    api: "v1beta (SDK enforced)",
-    model: "gemini-1.5-flash",
-    time: new Date().toISOString(),
-  });
-});
+/* ---------------- FIND WORKING MODEL ---------------- */
+async function getWorkingModel(apiKey) {
+  const listUrl =
+    `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`;
+
+  const res = await axios.get(listUrl);
+  const models = res.data.models || [];
+
+  const usable = models.find(m =>
+    m.supportedGenerationMethods?.includes("generateContent")
+  );
+
+  if (!usable) {
+    throw new Error("NO_SUPPORTED_MODEL_FOUND");
+  }
+
+  return usable.name; // e.g. models/gemini-1.0-pro
+}
 
 /* ---------------- ANALYZE ---------------- */
 app.post("/analyze", upload.single("resume"), async (req, res) => {
   try {
-    console.log("🔥 /analyze HIT (SDK FINAL)");
+    console.log("🔥 /analyze (REST v1)");
+
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) throw new Error("API_KEY_MISSING");
 
     const jobDesc = req.body.jobDesc || "Software Engineer";
+
+    const modelName = await getWorkingModel(apiKey);
+    console.log("🧠 USING MODEL:", modelName);
 
     const prompt = `
 You are an expert HR recruiter.
@@ -45,8 +54,7 @@ You are an expert HR recruiter.
 JOB DESCRIPTION:
 ${jobDesc}
 
-Respond in this format:
-
+Respond EXACTLY as:
 SCORE: <0-100>%
 MISSING: <skills>
 SUMMARY:
@@ -54,26 +62,36 @@ FEEDBACK:
 SEARCH_QUERY:
 `;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const url =
+      `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${apiKey}`;
 
-    console.log("✅ GEMINI SDK RESPONDED");
+    const response = await axios.post(url, {
+      contents: [
+        { role: "user", parts: [{ text: prompt }] }
+      ]
+    });
+
+    const text =
+      response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) throw new Error("EMPTY_AI_RESPONSE");
 
     return res.json({
-      matchScore: 70,
+      matchScore: 72,
       missingKeywords: ["Example"],
-      summary: "Gemini working correctly",
+      summary: "REST v1 working",
       feedback: text,
       searchQuery: "Software Engineer",
       jobs: [],
     });
+
   } catch (err) {
-    console.error("❌ SDK ERROR:", err.message);
+    console.error("❌ FINAL ERROR:", err.message);
 
     return res.json({
       matchScore: 10,
-      missingKeywords: ["SDK_ERROR"],
-      summary: "Gemini failed",
+      missingKeywords: ["AI_ERROR"],
+      summary: "Analysis failed",
       feedback: err.message,
       searchQuery: "Job Search",
       jobs: [],
@@ -83,5 +101,5 @@ SEARCH_QUERY:
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING (SDK FINAL)");
+  console.log("🟢 SERVER RUNNING (REST v1 STABLE)");
 });
