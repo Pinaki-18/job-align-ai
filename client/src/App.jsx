@@ -227,6 +227,43 @@ function App() {
         </button>
       </div>
 
+      {/* SHARE ANALYSIS (STEP 5) */}
+{shareLink && (
+  <div className="share-box" style={{ marginTop: "1rem" }}>
+    <p style={{ fontSize: "0.9rem", color: "#c7d2fe" }}>
+      🔗 Share this analysis
+    </p>
+    <div style={{ display: "flex", gap: "0.5rem" }}>
+      <input
+        value={shareLink}
+        readOnly
+        style={{
+          flex: 1,
+          padding: "0.5rem",
+          borderRadius: "6px",
+          border: "1px solid #334155",
+          background: "#020617",
+          color: "#e5e7eb",
+        }}
+      />
+      <button
+        onClick={() => navigator.clipboard.writeText(shareLink)}
+        style={{
+          padding: "0.5rem 0.75rem",
+          borderRadius: "6px",
+          background: "#6366f1",
+          color: "#fff",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        Copy
+      </button>
+    </div>
+  </div>
+)}
+
+
       {/* RESULTS SECTION */}
       {result && (
         <div className="results-grid">
