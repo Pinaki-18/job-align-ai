@@ -2,6 +2,9 @@ import { useState } from 'react';
 import axios from 'axios';
 import './App.css'; 
 
+// IMPORTANT: Use environment variable for API URL
+const API_URL = process.env.REACT_APP_API_URL || 'https://job-align-ai.onrender.com';
+
 function App() {
   const [jobDesc, setJobDesc] = useState("");
   const [file, setFile] = useState(null);
@@ -32,11 +35,11 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
-      console.log("📤 Uploading to Server...");
+      console.log("📤 Uploading to:", API_URL);
       console.log("📄 File:", file.name);
       console.log("📝 Job Desc Length:", jobDesc.length);
       
-      const res = await axios.post('https://job-align-ai.onrender.com/analyze', formData, {
+      const res = await axios.post(`${API_URL}/analyze`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -48,11 +51,9 @@ function App() {
       console.log("🔍 Match Score Value:", res.data.matchScore);
       console.log("🔍 Match Score Type:", typeof res.data.matchScore);
 
-      // Check if this is an error response (10% or error keywords)
-      if (res.data.matchScore === 10 && 
-          (res.data.missingKeywords?.includes("Error with AI") || 
-           res.data.summary === "Analysis Failed")) {
-        throw new Error(res.data.feedback || "AI service error occurred");
+      // Check if this is an error response
+      if (res.data.error) {
+        throw new Error(res.data.message || "Server returned an error");
       }
 
       // Enhanced validation
@@ -95,9 +96,11 @@ function App() {
       let errorMsg = "Server Error. Please try again.";
       
       if (err.code === 'ECONNABORTED') {
-        errorMsg = "Request timeout. Server is taking too long to respond.";
+        errorMsg = "⏱️ Request timeout. Server is taking too long. Try again in a moment.";
+      } else if (err.code === 'ERR_NETWORK') {
+        errorMsg = "🌐 Network error. Check if the backend server is running.";
       } else if (err.response) {
-        errorMsg = err.response.data?.error || err.response.data?.feedback || errorMsg;
+        errorMsg = err.response.data?.message || err.response.data?.error || errorMsg;
       } else if (err.message) {
         errorMsg = err.message;
       }
@@ -113,7 +116,7 @@ function App() {
     try {
       console.log("🔍 Fetching jobs for query:", query);
       const res = await axios.get(
-        `https://job-align-ai.onrender.com/search-jobs?query=${encodeURIComponent(query)}`,
+        `${API_URL}/search-jobs?query=${encodeURIComponent(query)}`,
         { timeout: 10000 }
       );
       
