@@ -58,7 +58,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
     console.log("\n========================================");
     console.log("🔥 PROCESSING NEW REQUEST");
 
-    // 1. CLEAN THE API KEY (Fixes the 404 error)
+    // 1. CLEAN THE API KEY (CRITICAL FIX 1)
     let apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) apiKey = apiKey.trim(); 
 
@@ -99,8 +99,8 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
     console.log("👉 Sending to Google...");
 
-    // 4. CALL GOOGLE API (FIXED MODEL NAME HERE)
-    // We switched from 'gemini-1.5-flash-latest' to 'gemini-1.5-flash'
+    // 4. CALL GOOGLE API (CRITICAL FIX 2: MODEL NAME)
+    // Removed "-latest" because it was deleted by Google
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       { 
@@ -108,7 +108,7 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
       },
       { 
         headers: { 'Content-Type': 'application/json' },
-        timeout: 45000 // 45 seconds timeout
+        timeout: 45000 
       }
     );
 
