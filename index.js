@@ -43,22 +43,23 @@ const upload = multer({
 
 app.get('/', (req, res) => res.json({ status: '🟢 Online' }));
 
-// --- THE CRITICAL FIX ---
+// --- DIAGNOSIS ENDPOINT ---
 app.post('/analyze', upload.single('resume'), async (req, res) => {
   try {
-    console.log("🔥 NEW REQUEST");
+    console.log("🔥 NEW REQUEST - DIAGNOSIS MODE");
 
-    // 1. Clean Key (Removes accidental spaces)
+    // 1. Clean Key
     let apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) apiKey = apiKey.trim(); 
 
-    if (!apiKey) throw new Error("API Key Missing");
+    if (!apiKey) throw new Error("API Key is MISSING in Render.");
 
     // 2. Prepare Data
     let resumeText = "";
     if (req.file && req.file.buffer) {
       resumeText = await parsePDF(req.file.buffer);
     }
+    // Fallback if PDF is image-based
     if (!resumeText || resumeText.length < 50) {
        resumeText = "Professional Software Engineer. Skills: React, Node.js, Python.";
     }
@@ -75,41 +76,54 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
       SEARCH_QUERY: [Job title]
     `;
 
-    console.log("👉 Sending to Google (gemini-1.5-flash)...");
+    console.log("👉 Attempting to call gemini-pro...");
 
-    // 🛑 THIS IS THE FIX: We use 'gemini-1.5-flash' (NOT latest)
+    // 3. CALL GOOGLE (Using gemini-pro for maximum compatibility)
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
       { contents: [{ parts: [{ text: prompt }] }] },
       { headers: { 'Content-Type': 'application/json' } }
     );
 
     const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("Empty Response");
+    if (!text) throw new Error("Google sent empty data.");
 
-    console.log("✅ Google Responded!");
-
-    // Parse Response
+    // 4. SUCCESS
     let matchScore = 50;
     const scoreMatch = text.match(/SCORE:\s*(\d{1,3})%/i);
     if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
 
-    // Send Result
     res.json({
       matchScore: matchScore,
-      missingKeywords: ["Skill A", "Skill B"], // Simplification for safety
-      summary: "Analysis Complete", 
-      feedback: "Review job requirements.",
+      missingKeywords: ["None - It Worked!"], 
+      summary: "Analysis Successful!", 
+      feedback: text.substring(0, 200) + "...",
       searchQuery: "Software Engineer",
       jobs: []
     });
 
   } catch (error) {
     console.error("❌ ERROR:", error.message);
-    if (error.response) console.error("🔍 Google says:", error.response.data);
     
-    // SAFE FALLBACK
-    res.json({ matchScore: 10, missingKeywords: ["Server Error"], feedback: "Try again.", searchQuery: "Job", jobs: [] });
+    // EXTRACT THE REAL REASON
+    let diagMessage = error.message;
+    if (error.response && error.response.data) {
+        // Try to capture Google's specific error message
+        const googleError = error.response.data.error;
+        if (googleError) {
+            diagMessage = `GOOGLE SAYS: ${googleError.code} - ${googleError.message}`;
+        }
+    }
+
+    // SEND THE ERROR TO THE FRONTEND SCREEN
+    res.json({ 
+      matchScore: 10, 
+      missingKeywords: ["DIAGNOSIS_MODE"], 
+      summary: `🛑 ERROR: ${diagMessage}`, // <--- THIS WILL SHOW ON YOUR SCREEN
+      feedback: "Please verify your API Key permissions.", 
+      searchQuery: "Error", 
+      jobs: [] 
+    });
   }
 });
 
