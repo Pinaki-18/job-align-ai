@@ -13,6 +13,9 @@ function App() {
   const [error, setError] = useState("");
   const [jobs, setJobs] = useState([]);
 
+  // STEP 5 (ADDED – NO UI CHANGE)
+  const [shareLink, setShareLink] = useState(null);
+
   // --- HANDLERS ---
 
   const handleFileChange = (e) => {
@@ -31,6 +34,7 @@ function App() {
     setLoading(true);
     setResult(null);
     setJobs([]);
+    setShareLink(null); // STEP 5
     setError("");
 
     const formData = new FormData();
@@ -38,17 +42,21 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
-      console.log("📤 Uploading to:", API_URL);
-      
-      const res = await axios.post(`${API_URL}/analyze`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
-      });
+      const res = await axios.post(
+        `${API_URL}/analyze`,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 60000,
+        }
+      );
 
       // Data Normalization
       const parsedResult = {
         matchScore: Number(res.data.matchScore) || 0,
-        missingKeywords: Array.isArray(res.data.missingKeywords) ? res.data.missingKeywords : [],
+        missingKeywords: Array.isArray(res.data.missingKeywords)
+          ? res.data.missingKeywords
+          : [],
         summary: res.data.summary || "Analysis complete",
         feedback: res.data.feedback || "No feedback available",
         searchQuery: res.data.searchQuery || ""
@@ -60,7 +68,19 @@ function App() {
 
       setResult(parsedResult);
 
-      // Trigger Job Search based on AI strategy
+      // ============================
+      // STEP 5: SAVE ANALYSIS (ADDED)
+      // ============================
+      const saveRes = await axios.post(
+        `${API_URL}/save-analysis`,
+        parsedResult
+      );
+      setShareLink(
+        `${window.location.origin}${saveRes.data.shareUrl}`
+      );
+      // ============================
+
+      // Trigger Job Search
       if (parsedResult.searchQuery) {
         await fetchJobs(parsedResult.searchQuery);
       } else {
@@ -68,8 +88,10 @@ function App() {
       }
 
     } catch (err) {
-      console.error("❌ Upload Error:", err);
-      let errorMsg = err.response?.data?.message || err.message || "Server Error";
+      let errorMsg =
+        err.response?.data?.message ||
+        err.message ||
+        "Server Error";
       setError(`❌ ${errorMsg}`);
     } finally {
       setLoading(false);
@@ -78,26 +100,56 @@ function App() {
 
   const fetchJobs = async (query) => {
     try {
-      const res = await axios.get(`${API_URL}/search-jobs?query=${encodeURIComponent(query)}`, { 
-        timeout: 10000 
-      });
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+      const res = await axios.get(
+        `${API_URL}/search-jobs?query=${encodeURIComponent(query)}`,
+        { timeout: 10000 }
+      );
+      if (Array.isArray(res.data) && res.data.length > 0) {
         setJobs(res.data);
       } else {
         useMockJobs(query);
       }
-    } catch (err) {
+    } catch {
       useMockJobs(query);
     }
   };
 
   const useMockJobs = (query) => {
-    const cleanTitle = (query || "Developer").replace(/Search query|Remote|Developer/gi, "").trim() || "Developer";
+    const cleanTitle =
+      (query || "Developer")
+        .replace(/Search query|Remote|Developer/gi, "")
+        .trim() || "Developer";
+
     const mockJobs = [
-      { id: 101, title: `Senior ${cleanTitle}`, company: "Google (Demo)", location: "Bangalore, India", type: "Full-time", link: "https://google.com/careers", logo: "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" },
-      { id: 102, title: `${cleanTitle} (Remote)`, company: "Netflix (Demo)", location: "Remote", type: "Contract", link: "https://jobs.netflix.com", logo: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg" },
-      { id: 103, title: `Junior ${cleanTitle}`, company: "Microsoft (Demo)", location: "Hyderabad, India", type: "Hybrid", link: "https://careers.microsoft.com", logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" }
+      {
+        id: 101,
+        title: `Senior ${cleanTitle}`,
+        company: "Google (Demo)",
+        location: "Bangalore, India",
+        type: "Full-time",
+        link: "https://google.com/careers",
+        logo: "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg"
+      },
+      {
+        id: 102,
+        title: `${cleanTitle} (Remote)`,
+        company: "Netflix (Demo)",
+        location: "Remote",
+        type: "Contract",
+        link: "https://jobs.netflix.com",
+        logo: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg"
+      },
+      {
+        id: 103,
+        title: `Junior ${cleanTitle}`,
+        company: "Microsoft (Demo)",
+        location: "Hyderabad, India",
+        type: "Hybrid",
+        link: "https://careers.microsoft.com",
+        logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg"
+      }
     ];
+
     setJobs(mockJobs);
   };
 
@@ -118,7 +170,9 @@ function App() {
   return (
     <div className="container">
       <header>
-        <div className="logo-container"><span className="logo-icon">🚀</span></div>
+        <div className="logo-container">
+          <span className="logo-icon">🚀</span>
+        </div>
         <h1>JobAlign AI</h1>
         <p className="subtitle">AI-Powered Resume Scorer & Headhunter</p>
         <div className="powered-badge">Powered by Gemini AI ✨</div>
@@ -130,10 +184,10 @@ function App() {
           <div className="step-number">1</div>
           <h3>Job Description</h3>
         </div>
-        <textarea 
-          placeholder="Paste the job description here..." 
-          value={jobDesc} 
-          onChange={(e) => setJobDesc(e.target.value)} 
+        <textarea
+          placeholder="Paste the job description here..."
+          value={jobDesc}
+          onChange={(e) => setJobDesc(e.target.value)}
         />
 
         <div className="section-header">
@@ -141,10 +195,18 @@ function App() {
           <h3>Upload Resume</h3>
         </div>
         <div className="file-drop">
-          <input type="file" accept=".pdf" onChange={handleFileChange} id="fileInput" style={{ display: 'none' }} />
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={handleFileChange}
+            id="fileInput"
+            style={{ display: 'none' }}
+          />
           <label htmlFor="fileInput">
             {file ? (
-              <div className="file-success"><span>📄 {file.name}</span></div>
+              <div className="file-success">
+                <span>📄 {file.name}</span>
+              </div>
             ) : (
               <div className="file-prompt">
                 <span className="upload-icon">📂</span>
@@ -155,8 +217,12 @@ function App() {
         </div>
 
         {error && <div className="error-box">{error}</div>}
-        
-        <button className="analyze-btn" onClick={handleUpload} disabled={loading}>
+
+        <button
+          className="analyze-btn"
+          onClick={handleUpload}
+          disabled={loading}
+        >
           {loading ? "🔄 Analyzing..." : "🚀 Analyze Match"}
         </button>
       </div>
@@ -171,12 +237,15 @@ function App() {
             </h2>
             <div className="circle-container">
               <svg viewBox="0 0 36 36" className="circular-chart">
-                <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                <path 
-                  className="circle" 
-                  strokeDasharray={`${result.matchScore}, 100`} 
-                  stroke={getScoreColor(result.matchScore)} 
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                <path
+                  className="circle-bg"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <path
+                  className="circle"
+                  strokeDasharray={`${result.matchScore}, 100`}
+                  stroke={getScoreColor(result.matchScore)}
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
               </svg>
               <div className="percentage">{result.matchScore}%</div>
@@ -190,9 +259,13 @@ function App() {
                 <h3 className="detail-title">Missing Keywords</h3>
               </div>
               <div className="badge-container">
-                {result.missingKeywords.length > 0 ? result.missingKeywords.map((kw, i) => (
-                  <span key={i} className="badge">▪ {kw}</span>
-                )) : <span style={{ color: '#10b981' }}>✅ None! Perfect Match.</span>}
+                {result.missingKeywords.length > 0 ? (
+                  result.missingKeywords.map((kw, i) => (
+                    <span key={i} className="badge">▪ {kw}</span>
+                  ))
+                ) : (
+                  <span style={{ color: '#10b981' }}>✅ None! Perfect Match.</span>
+                )}
               </div>
             </div>
 
@@ -201,8 +274,16 @@ function App() {
                 <span style={{ fontSize: '1.5rem' }}>💡</span>
                 <h3 className="detail-title">Actionable Feedback</h3>
               </div>
-              <div className="summary-box" style={{ background: 'rgba(99, 102, 241, 0.1)', borderLeft: '4px solid #8b5cf6' }}>
-                <div style={{ whiteSpace: 'pre-line' }}>{result.feedback}</div>
+              <div
+                className="summary-box"
+                style={{
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  borderLeft: '4px solid #8b5cf6'
+                }}
+              >
+                <div style={{ whiteSpace: 'pre-line' }}>
+                  {result.feedback}
+                </div>
               </div>
             </div>
 
@@ -213,7 +294,7 @@ function App() {
                   <span style={{ fontSize: '1.5rem' }}>💼</span>
                   <h3 className="detail-title">Recommended Jobs</h3>
                 </div>
-                <p style={{ color: '#text-muted', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
                   AI Search Strategy: <strong>"{result.searchQuery}"</strong>
                 </p>
                 <div className="job-grid">
@@ -221,7 +302,9 @@ function App() {
                     <div key={job.id} className="job-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <h4 className="job-role">{job.title}</h4>
-                        {job.logo && <img src={job.logo} alt="logo" style={{ width: '30px' }} />}
+                        {job.logo && (
+                          <img src={job.logo} alt="logo" style={{ width: '30px' }} />
+                        )}
                       </div>
                       <div className="job-company">
                         <span>🏢 {job.company}</span>
@@ -230,14 +313,24 @@ function App() {
                       <div className="job-tags">
                         <span className="job-tag">{job.type}</span>
                       </div>
-                      <a href={job.link} target="_blank" rel="noreferrer" className="apply-link">Apply Now ↗</a>
+                      <a
+                        href={job.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="apply-link"
+                      >
+                        Apply Now ↗
+                      </a>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <button className="secondary-btn" onClick={() => window.location.reload()}>
+            <button
+              className="secondary-btn"
+              onClick={() => window.location.reload()}
+            >
               ↻ Analyze Another
             </button>
           </div>
