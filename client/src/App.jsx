@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import './App.css'; // ⚠️ Check if your file is named "App.css" or "app.css"
+import './App.css'; 
 
 function App() {
   const [jobDesc, setJobDesc] = useState("");
@@ -32,24 +32,27 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
+      console.log("📤 Uploading to Server...");
+      
       // 1. Analyze Resume
-      // ⚠️ USING YOUR LIVE RENDER URL
+      // We do NOT set manual headers here. Axios handles FormData automatically.
       const res = await axios.post('https://job-align-ai.onrender.com/analyze', formData);
       
-      // Safety: Ensure response data exists
+      console.log("📥 Server Response:", res.data);
+
+      // Safety Check
       if (!res.data) throw new Error("Empty response from server");
       
       setResult(res.data);
 
       // 2. Fetch Jobs (Safely)
       if (res.data.searchQuery) {
-        console.log("Fetching jobs for:", res.data.searchQuery);
         await fetchJobs(res.data.searchQuery);
       }
 
     } catch (err) {
-      console.error(err);
-      setError("❌ Server Error: The backend might be waking up. Try again in 30 seconds.");
+      console.error("❌ Upload Error:", err);
+      setError("❌ Server Error. Please check the Console (F12) for details.");
     } finally {
       setLoading(false);
     }
@@ -57,9 +60,7 @@ function App() {
 
   const fetchJobs = async (query) => {
     try {
-      // Try to hit the Real API
       const res = await axios.get(`https://job-align-ai.onrender.com/search-jobs?query=${encodeURIComponent(query)}`);
-      
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         setJobs(res.data);
       } else {
@@ -72,7 +73,6 @@ function App() {
   };
 
   const useMockJobs = (query) => {
-    // Safety check for query
     const safeQuery = query || "Software Engineer";
     const cleanTitle = safeQuery.replace("Search query", "").replace("Remote", "").trim();
     
@@ -160,12 +160,11 @@ function App() {
         </button>
       </div>
 
-      {/* 🛡️ DEFENSIVE RENDERING STARTS HERE */}
+      {/* 🛡️ RESULT SECTION */}
       {result && (
         <div className="results-grid">
           <div className="score-card">
             <p className="score-label">MATCH SCORE</p>
-            {/* SAFE: Defaults to 0 if matchScore is missing */}
             <h2 style={{marginTop: '0.5rem', marginBottom: '2rem'}}>{getScoreLabel(result.matchScore || 0)}</h2>
             <div className="circle-container">
               <svg viewBox="0 0 36 36" className="circular-chart">
@@ -184,7 +183,6 @@ function App() {
             <div className="detail-section">
               <div className="detail-header"><span style={{fontSize: '1.5rem'}}>🔍</span><h3 className="detail-title">Missing Keywords</h3></div>
               <div className="badge-container">
-                {/* SAFE: Checks if array exists before mapping */}
                 {(result.missingKeywords || []).length > 0 ? 
                   (result.missingKeywords || []).map((kw, i) => <span key={i} className="badge">▪ {kw}</span>) 
                   : <span style={{color: '#10b981'}}>None! Perfect Match.</span>
@@ -199,7 +197,6 @@ function App() {
               </div>
             </div>
 
-            {/* --- JOBS SECTION (SAFE) --- */}
             {jobs && jobs.length > 0 && (
               <div className="job-section">
                 <div className="detail-header">
@@ -207,7 +204,7 @@ function App() {
                   <h3 className="detail-title">Recommended Jobs</h3>
                 </div>
                 <p style={{color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem'}}>
-                   AI Search Strategy: <strong style={{color: '#fff'}}>"{result.searchQuery || "Job Search"}"</strong>
+                    AI Search Strategy: <strong style={{color: '#fff'}}>"{result.searchQuery || "Job Search"}"</strong>
                 </p>
 
                 <div className="job-grid">
@@ -236,8 +233,7 @@ function App() {
                 </div>
               </div>
             )}
-            {/* ------------------- */}
-
+            
             <button className="secondary-btn" onClick={() => window.location.reload()}>↻ Analyze Another</button>
           </div>
         </div>
