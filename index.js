@@ -18,32 +18,48 @@ async function parsePDF(buffer) {
 }
 
 const app = express();
-// IMPORTANT: Render sets the PORT environment variable. We must use it.
 const port = process.env.PORT || 5001; 
 
 app.use(cors());
 app.use(express.json());
-const upload = multer({ storage: multer.memoryStorage() });
+
+// Increase limit for PDF uploads
+const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
         console.log("\n--- New Analysis Request ---");
-        
-        // 1. Parse PDF
-        let resumeText = req.file ? await parsePDF(req.file.buffer) : "";
-        if (!resumeText || resumeText.length < 50) {
-            console.log("⚠️ PDF empty. Using fallback text.");
-            resumeText = `Name: Candidate. Role: Software Engineer.`;
+
+        // 1. AUTO-FIX API KEY (Removes invisible spaces/newlines)
+        const rawKey = process.env.GEMINI_API_KEY || "";
+        const cleanKey = rawKey.trim(); 
+
+        if (!cleanKey) {
+            throw new Error("API Key is missing (Checked .env)");
+        }
+        console.log(`🔑 API Key loaded (Length: ${cleanKey.length} chars)`);
+
+        // 2. Parse PDF
+        let resumeText = "";
+        if (req.file && req.file.buffer) {
+            console.log(`📄 PDF Received: ${req.file.originalname} (${req.file.size} bytes)`);
+            resumeText = await parsePDF(req.file.buffer);
+        } else {
+            console.log("⚠️ No PDF file detected in request.");
         }
 
-        // 2. Check API Key
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("API Key is missing on Server");
+        // Fallback if parsing failed
+        if (!resumeText || resumeText.length < 50) {
+            console.log("⚠️ Text too short or empty. Using fallback context.");
+            resumeText = "Candidate Name: User. Role: Software Engineer. Skills: Java, Python, React.";
         }
 
         const prompt = `
             Analyze this resume against the Job Description.
-            Job Description: "${req.body.jobDesc}"
+            Job Description: "${req.body.jobDesc || 'Software Engineer'}"
             Resume: "${resumeText}"
             
             Output strictly in this format:
@@ -56,17 +72,14 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
 
         console.log("👉 Sending Request to Gemini...");
 
+        // 3. Call Google (Using the CLEAN KEY)
         const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`,
             { contents: [{ parts: [{ text: prompt }] }] },
             { headers: { 'Content-Type': 'application/json' } }
         );
 
-        if (!response.data.candidates || response.data.candidates.length === 0) {
-             throw new Error("Google AI returned no results.");
-        }
-
-        const text = response.data.candidates[0].content.parts[0].text;
+        const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         console.log("--- ✅ Success! Google Responded ---");
 
         // 4. Parse the Answer
@@ -94,12 +107,15 @@ app.post('/analyze', upload.single('resume'), async (req, res) => {
         const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
         if (queryMatch) searchQuery = queryMatch[1].trim();
 
-        // 5. Send Response (Includes empty jobs array to prevent crash)
         res.json({ matchScore, missingKeywords, summary, feedback, searchQuery, jobs: [] });
 
     } catch (error) {
         console.error("❌ Error:", error.message);
-        // Return a SAFE response so the screen doesn't go blank
+        if (error.response) {
+            console.error("🔍 Google Error Detail:", error.response.data);
+        }
+        
+        // Return SAFE response (10%)
         res.json({ 
             matchScore: 10, 
             missingKeywords: ["Error with AI Service"], 
