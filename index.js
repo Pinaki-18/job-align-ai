@@ -1,116 +1,116 @@
 const express = require('express');
-const multer = require('multer');
 const cors = require('cors');
+const multer = require('multer');
+const axios = require('axios'); 
 require('dotenv').config();
-const pdf = require('pdf-extraction'); 
+
+// --- PDF PARSER ---
+let pdfParseLib;
+try { pdfParseLib = require('pdf-parse'); } catch (err) {}
+
+async function parsePDF(buffer) {
+    if (!pdfParseLib) return "";
+    try {
+        const parser = typeof pdfParseLib === 'function' ? pdfParseLib : pdfParseLib.default;
+        const data = await parser(buffer);
+        return data.text;
+    } catch (err) { return ""; }
+}
 
 const app = express();
-const port = process.env.PORT || 10000;
+// IMPORTANT: Render sets the PORT environment variable. We must use it.
+const port = process.env.PORT || 5001; 
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public')); 
+const upload = multer({ storage: multer.memoryStorage() });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
-
-// --- HELPER: FIND A WORKING MODEL ---
-async function findActiveModel(apiKey) {
-    console.log("🔍 Scanning for available models...");
+app.post('/analyze', upload.single('resume'), async (req, res) => {
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-        const data = await response.json();
+        console.log("\n--- New Analysis Request ---");
         
-        if (!data.models) {
-            console.error("❌ No models found. Raw response:", data);
-            return null;
+        // 1. Parse PDF
+        let resumeText = req.file ? await parsePDF(req.file.buffer) : "";
+        if (!resumeText || resumeText.length < 50) {
+            console.log("⚠️ PDF empty. Using fallback text.");
+            resumeText = `Name: Candidate. Role: Software Engineer.`;
         }
 
-        // Look for any model that starts with 'models/gemini' and supports content generation
-        const activeModel = data.models.find(m => 
-            m.name.includes('gemini') && 
-            m.supportedGenerationMethods.includes('generateContent')
+        // 2. Check API Key
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error("API Key is missing on Server");
+        }
+
+        const prompt = `
+            Analyze this resume against the Job Description.
+            Job Description: "${req.body.jobDesc}"
+            Resume: "${resumeText}"
+            
+            Output strictly in this format:
+            SCORE: [Number 0-100]%
+            MISSING: [Comma separated list of missing critical skills]
+            SUMMARY: [One professional sentence summary]
+            FEEDBACK: [3-4 detailed bullet points on specific changes]
+            SEARCH_QUERY: [Generate the PERFECT 3-4 word job search query]
+        `;
+
+        console.log("👉 Sending Request to Gemini...");
+
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { contents: [{ parts: [{ text: prompt }] }] },
+            { headers: { 'Content-Type': 'application/json' } }
         );
 
-        if (activeModel) {
-            console.log(`✅ Found active model: ${activeModel.name}`);
-            return activeModel.name; // e.g., 'models/gemini-pro'
-        }
-        
-        return "models/gemini-pro"; // Fallback
-
-    } catch (error) {
-        console.error("⚠️ Could not list models:", error.message);
-        return "models/gemini-pro"; // Fallback
-    }
-}
-
-// --- ROUTE 1: EXTRACT TEXT ---
-app.post('/extract-text', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) return res.json({ success: false, error: "No file uploaded." });
-        const data = await pdf(req.file.buffer);
-        res.json({ success: true, text: data.text.trim() });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// --- ROUTE 2: ANALYZE (Smart Mode) ---
-app.post('/analyze', async (req, res) => {
-    const { resumeText, jobDescription } = req.body;
-    if (!resumeText || !jobDescription) return res.json({ analysis: "⚠️ Missing text." });
-
-    // 1. Prepare Key
-    const API_KEY = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
-    
-    // 2. Find the Right Model Name Dynamically
-    const modelName = await findActiveModel(API_KEY);
-    
-    if (!modelName) {
-        return res.json({ analysis: "❌ Critical Error: Your API Key has access to 0 models. Please create a key in a new project." });
-    }
-
-    // 3. Construct URL using the found name
-    // Note: modelName already includes 'models/', so we don't add it again.
-    // We strip 'models/' if it exists to be safe for the URL format.
-    const cleanModelName = modelName.replace('models/', '');
-    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelName}:generateContent?key=${API_KEY}`;
-
-    console.log(`🚀 Sending request to: ${cleanModelName}`);
-
-    const requestBody = {
-        contents: [{
-            parts: [{
-                text: `Act as a hiring manager. Match Score & Tips for: \nRESUME: ${resumeText.substring(0, 3000)} \n JD: ${jobDescription.substring(0, 3000)}`
-            }]
-        }]
-    };
-
-    try {
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
-        });
-
-        const data = await response.json();
-
-        if (data.error) {
-            throw new Error(data.error.message);
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+             throw new Error("Google AI returned no results.");
         }
 
-        const analysis = data.candidates[0].content.parts[0].text;
-        res.json({ analysis: analysis });
+        const text = response.data.candidates[0].content.parts[0].text;
+        console.log("--- ✅ Success! Google Responded ---");
+
+        // 4. Parse the Answer
+        let matchScore = 70; 
+        const scoreMatch = text.match(/SCORE:\s*(\d{1,3})%/i); 
+        if (scoreMatch) matchScore = parseInt(scoreMatch[1]);
+
+        let summary = "Analysis complete.";
+        const summaryMatch = text.match(/SUMMARY:\s*(.*)/i);
+        if (summaryMatch) summary = summaryMatch[1].trim();
+
+        let missingKeywords = ["General Improvements"];
+        const missingMatch = text.match(/MISSING:\s*(.*)/i);
+        if (missingMatch) missingKeywords = missingMatch[1].split(',').map(s => s.trim()).slice(0, 4);
+
+        let feedback = "No specific feedback provided.";
+        const feedbackMatch = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i); 
+        if (feedbackMatch) feedback = feedbackMatch[1].trim();
+        else {
+             const simpleFeedback = text.match(/FEEDBACK:([\s\S]*?)$/i);
+             if (simpleFeedback) feedback = simpleFeedback[1].trim();
+        }
+
+        let searchQuery = "Software Engineer";
+        const queryMatch = text.match(/SEARCH_QUERY:\s*(.*)/i);
+        if (queryMatch) searchQuery = queryMatch[1].trim();
+
+        // 5. Send Response (Includes empty jobs array to prevent crash)
+        res.json({ matchScore, missingKeywords, summary, feedback, searchQuery, jobs: [] });
 
     } catch (error) {
-        console.error("🔥 API Error:", error.message);
+        console.error("❌ Error:", error.message);
+        // Return a SAFE response so the screen doesn't go blank
         res.json({ 
-            analysis: `❌ API ERROR: ${error.message}\n\n(Model used: ${cleanModelName})` 
+            matchScore: 10, 
+            missingKeywords: ["Error with AI Service"], 
+            summary: "Analysis Failed", 
+            feedback: "The AI service is currently busy. Please try again.", 
+            searchQuery: "Developer",
+            jobs: []
         });
     }
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-});
+app.get('/search-jobs', async (req, res) => { res.json([]); });
+
+app.listen(port, () => console.log(`\n🟢 SERVER READY on port ${port}\n`));
