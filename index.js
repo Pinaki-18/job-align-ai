@@ -4,13 +4,13 @@ const multer = require("multer");
 const axios = require("axios");
 require("dotenv").config();
 
-/* ---------------- PDF PARSE ---------------- */
+/* ---------------- PDF PARSER (FIXED) ---------------- */
 let pdfParse;
 try {
   pdfParse = require("pdf-parse");
   console.log("✅ pdf-parse loaded");
-} catch {
-  console.log("⚠️ pdf-parse not installed");
+} catch (err) {
+  console.log("⚠️ pdf-parse not available");
 }
 
 async function parsePDF(buffer) {
@@ -24,7 +24,7 @@ async function parsePDF(buffer) {
   }
 }
 
-/* ---------------- APP ---------------- */
+/* ---------------- APP SETUP ---------------- */
 const app = express();
 const port = process.env.PORT || 10000;
 
@@ -47,12 +47,15 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-/* ---------------- HEALTH ---------------- */
+/* ---------------- HEALTH CHECK ---------------- */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", time: new Date().toISOString() });
+  res.json({
+    status: "OK",
+    time: new Date().toISOString(),
+  });
 });
 
-/* ---------------- ANALYZE ---------------- */
+/* ---------------- ANALYZE ENDPOINT ---------------- */
 app.post("/analyze", upload.single("resume"), async (req, res) => {
   try {
     console.log("🔥 /analyze called");
@@ -61,7 +64,7 @@ app.post("/analyze", upload.single("resume"), async (req, res) => {
     if (!apiKey) throw new Error("GEMINI_API_KEY missing");
     apiKey = apiKey.trim();
 
-    console.log("🧠 Model: gemini-1.5-flash | API v1");
+    console.log("🧠 Model: gemini-1.5-flash-001 | API v1");
     console.log("🔑 API key length:", apiKey.length);
 
     const jobDesc = req.body.jobDesc || "Software Engineer";
@@ -73,11 +76,13 @@ app.post("/analyze", upload.single("resume"), async (req, res) => {
 
     if (!resumeText || resumeText.length < 50) {
       resumeText =
-        "Skills: Java, Python, JavaScript. Experience: Junior Developer.";
+        "Skills: Java, Python, JavaScript. Experience: Junior Software Developer.";
     }
 
     const prompt = `
 You are an expert HR recruiter.
+
+Compare the RESUME with the JOB DESCRIPTION.
 
 JOB DESCRIPTION:
 ${jobDesc}
@@ -85,20 +90,21 @@ ${jobDesc}
 RESUME:
 ${resumeText}
 
-Respond ONLY in this format:
+Respond STRICTLY in this format:
 
 SCORE: <0-100>%
-MISSING: <comma separated skills>
+MISSING: <3-5 comma separated skills>
 SUMMARY: <one sentence>
 FEEDBACK:
-- <point>
-- <point>
-- <point>
+- <point 1>
+- <point 2>
+- <point 3>
 SEARCH_QUERY: <job title>
 `;
 
+    /* -------- GEMINI CALL (CORRECT MODEL) -------- */
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`,
       {
         contents: [
           {
@@ -120,32 +126,35 @@ SEARCH_QUERY: <job title>
 
     console.log("✅ Gemini responded");
 
-    /* -------- PARSE -------- */
+    /* ---------------- PARSE RESPONSE ---------------- */
     let matchScore = 50;
-    const score = aiText.match(/SCORE:\s*(\d{1,3})/i);
-    if (score) matchScore = Number(score[1]);
+    const scoreMatch = aiText.match(/SCORE:\s*(\d{1,3})/i);
+    if (scoreMatch) matchScore = Number(scoreMatch[1]);
 
-    let missingKeywords = ["Improve profile"];
-    const missing = aiText.match(/MISSING:\s*(.+)/i);
-    if (missing) {
-      missingKeywords = missing[1]
+    let missingKeywords = ["Improve overall profile"];
+    const missingMatch = aiText.match(/MISSING:\s*(.+)/i);
+    if (missingMatch) {
+      missingKeywords = missingMatch[1]
         .split(",")
         .map((s) => s.trim())
         .slice(0, 5);
     }
 
     let summary = "Analysis complete.";
-    const sum = aiText.match(/SUMMARY:\s*(.+)/i);
-    if (sum) summary = sum[1].trim();
+    const summaryMatch = aiText.match(/SUMMARY:\s*(.+)/i);
+    if (summaryMatch) summary = summaryMatch[1].trim();
 
     let feedback = "";
-    const fb = aiText.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i);
-    if (fb) feedback = fb[1].trim();
+    const feedbackMatch = aiText.match(
+      /FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i
+    );
+    if (feedbackMatch) feedback = feedbackMatch[1].trim();
 
     let searchQuery = "Software Engineer";
-    const q = aiText.match(/SEARCH_QUERY:\s*(.+)/i);
-    if (q) searchQuery = q[1].trim();
+    const queryMatch = aiText.match(/SEARCH_QUERY:\s*(.+)/i);
+    if (queryMatch) searchQuery = queryMatch[1].trim();
 
+    /* ---------------- SUCCESS ---------------- */
     res.json({
       matchScore,
       missingKeywords,
@@ -165,6 +174,7 @@ SEARCH_QUERY: <job title>
       );
     }
 
+    /* ---------------- SAFE MODE ---------------- */
     res.json({
       matchScore: 10,
       missingKeywords: ["AI service error"],
@@ -177,7 +187,7 @@ SEARCH_QUERY: <job title>
   }
 });
 
-/* ---------------- START ---------------- */
+/* ---------------- START SERVER ---------------- */
 app.listen(port, "0.0.0.0", () => {
   console.log(`🟢 Server running on port ${port}`);
 });
