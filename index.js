@@ -1,8 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const axios = require("axios");
 require("dotenv").config();
+
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 /* ---------------- APP ---------------- */
 const app = express();
@@ -11,92 +12,65 @@ const port = process.env.PORT || 10000;
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+const upload = multer({ storage: multer.memoryStorage() });
+
+/* ---------------- GEMINI SDK ---------------- */
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-pro",
 });
 
-/* ---------------- PROOF ENDPOINT ---------------- */
+/* ---------------- PROOF ---------------- */
 app.get("/whoami", (req, res) => {
   res.json({
-    backend: "RENDER-BACKEND-V3",
-    model: "gemini-1.5-pro-001",
+    backend: "RENDER-BACKEND-V4-SDK",
+    model: "gemini-1.5-pro (SDK)",
     time: new Date().toISOString(),
   });
-});
-
-/* ---------------- HEALTH ---------------- */
-app.get("/", (req, res) => {
-  res.json({ status: "OK" });
 });
 
 /* ---------------- ANALYZE ---------------- */
 app.post("/analyze", upload.single("resume"), async (req, res) => {
   try {
-    console.log("🔥 /analyze HIT");
+    console.log("🔥 /analyze HIT (SDK)");
 
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) throw new Error("NO_API_KEY");
-
-    console.log("🧠 MODEL = gemini-1.5-pro-001");
+    const jobDesc = req.body.jobDesc || "Software Engineer";
 
     const prompt = `
-You are an HR expert.
-Analyze resume vs job description.
+You are an expert HR recruiter.
 
-Return:
-SCORE: %
-MISSING:
+JOB DESCRIPTION:
+${jobDesc}
+
+Give:
+SCORE: <0-100>%
+MISSING: <skills>
 SUMMARY:
 FEEDBACK:
 SEARCH_QUERY:
 `;
 
-    const url =
-      "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro-001:generateContent?key=" +
-      apiKey;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
 
-    const response = await axios.post(
-      url,
-      {
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-      },
-      { headers: { "Content-Type": "application/json" } }
-    );
-
-    const text =
-      response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) throw new Error("EMPTY_RESPONSE");
-
-    console.log("✅ GEMINI OK");
+    console.log("✅ Gemini SDK responded");
 
     return res.json({
-      matchScore: 75,
-      missingKeywords: ["Sample"],
-      summary: "Gemini working",
+      matchScore: 70,
+      missingKeywords: ["Example"],
+      summary: "Gemini SDK working",
       feedback: text,
       searchQuery: "Software Engineer",
       jobs: [],
     });
   } catch (err) {
-    console.error("❌ ERROR");
-
-    if (err.response) {
-      console.error(err.response.status);
-      console.error(JSON.stringify(err.response.data, null, 2));
-    }
+    console.error("❌ SDK ERROR:", err.message);
 
     return res.json({
       matchScore: 10,
-      missingKeywords: ["CONNECTION_ERROR"],
-      summary: "FAILED",
-      feedback: "BACKEND ERROR — CHECK /whoami",
+      missingKeywords: ["SDK_ERROR"],
+      summary: "Gemini SDK failed",
+      feedback: err.message,
       searchQuery: "Job Search",
       jobs: [],
     });
@@ -105,5 +79,5 @@ SEARCH_QUERY:
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER STARTED");
+  console.log("🟢 SERVER RUNNING (SDK MODE)");
 });
