@@ -1,3 +1,4 @@
+const rateLimit = require("express-rate-limit");
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -9,6 +10,23 @@ const port = process.env.PORT || 10000;
 
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
+
+const analyzeLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 20, // 20 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    matchScore: 0,
+    missingKeywords: ["RATE_LIMIT"],
+    summary: "Too many requests",
+    feedback:
+      "You are sending requests too quickly. Please wait a minute and try again.",
+    searchQuery: "Job Search",
+    jobs: [],
+  },
+});
+
 const upload = multer({ storage: multer.memoryStorage() });
 
 /* ---------------- HEALTH ---------------- */
@@ -31,7 +49,12 @@ async function getWorkingModel(apiKey) {
 }
 
 /* ---------------- ANALYZE ---------------- */
-app.post("/analyze", upload.single("resume"), async (req, res) => {
+app.post(
+  "/analyze",
+  analyzeLimiter,
+  upload.single("resume"),
+  async (req, res) => {
+
   try {
     const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) throw new Error("API_KEY_MISSING");
