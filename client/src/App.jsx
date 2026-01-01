@@ -37,12 +37,12 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
+      // 1. Analyze Resume
       const res = await axios.post(`${API_URL}/analyze`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
       });
 
-      // Data Normalization - Fixed to ensure score parsing is robust
       const parsedResult = {
         ...res.data,
         matchScore: Number(res.data.matchScore) || 0,
@@ -51,12 +51,13 @@ function App() {
 
       setResult(parsedResult);
 
-      // Save analysis to generate the Share Link in the background
+      // 2. Fix: Point Share Link directly to BACKEND to solve 404
       try {
         const saveRes = await axios.post(`${API_URL}/save-analysis`, parsedResult);
-        setShareLink(`${window.location.origin}${saveRes.data.shareUrl}`);
+        // Correcting the link origin to API_URL
+        setShareLink(`${API_URL}${saveRes.data.shareUrl}`); 
       } catch (saveErr) {
-        console.warn("Share logic failed, but results are shown.");
+        console.warn("Share link generation failed.");
       }
 
       if (parsedResult.searchQuery) await fetchJobs(parsedResult.searchQuery);
@@ -86,6 +87,12 @@ function App() {
     setJobs(mockJobs);
   };
 
+  const getScoreColor = (score) => {
+    if (score >= 80) return "#10b981";
+    if (score >= 50) return "#f59e0b";
+    return "#ef4444";
+  };
+
   return (
     <div className="container">
       <header>
@@ -112,23 +119,28 @@ function App() {
             <div className="circle-container">
               <svg viewBox="0 0 36 36" className="circular-chart">
                 <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                <path className="circle" strokeDasharray={`${result.matchScore}, 100`} stroke={result.matchScore >= 80 ? "#10b981" : "#f59e0b"} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                <path 
+                  className="circle" 
+                  strokeDasharray={`${result.matchScore}, 100`} 
+                  stroke={getScoreColor(result.matchScore)} 
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                />
               </svg>
               <div className="percentage">{result.matchScore}%</div>
             </div>
 
-            {/* Link Solved: Integrated nicely without the "bad look" */}
+            {/* Restored Sleek Link Section */}
             {shareLink && (
               <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results</p>
+                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results (Public)</p>
                 <button 
                   onClick={() => {
                     navigator.clipboard.writeText(shareLink);
-                    alert("Link copied!");
+                    alert("Link copied to clipboard!");
                   }}
                   style={{ width: '100%', padding: '8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '5px' }}
                 >
-                  Copy Link
+                  Copy Share Link
                 </button>
               </div>
             )}
@@ -138,7 +150,9 @@ function App() {
             <div className="detail-section">
               <h3>🔍 Missing Keywords</h3>
               <div className="badge-container">
-                {result.missingKeywords.length > 0 ? result.missingKeywords.map((kw, i) => <span key={i} className="badge">▪ {kw}</span>) : "✅ Perfect Match"}
+                {result.missingKeywords.length > 0 ? result.missingKeywords.map((kw, i) => (
+                  <span key={i} className="badge">▪ {kw}</span>
+                )) : "✅ Perfect Match"}
               </div>
             </div>
             <div className="detail-section">
