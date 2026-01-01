@@ -12,11 +12,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [jobs, setJobs] = useState([]);
-
-  // STEP 5 (ADDED – NO UI CHANGE)
   const [shareLink, setShareLink] = useState(null);
 
-  // --- HANDLERS ---
+  /* ---------------- HANDLERS ---------------- */
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -34,7 +32,7 @@ function App() {
     setLoading(true);
     setResult(null);
     setJobs([]);
-    setShareLink(null); // STEP 5
+    setShareLink(null);
     setError("");
 
     const formData = new FormData();
@@ -42,24 +40,21 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
-      const res = await axios.post(
-        `${API_URL}/analyze`,
-        formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 60000,
-        }
-      );
+      // 1. Analyze Resume
+      const res = await axios.post(`${API_URL}/analyze`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      });
 
-      // Data Normalization
+      // Data Normalization (Including new fields from updated backend)
       const parsedResult = {
         matchScore: Number(res.data.matchScore) || 0,
-        missingKeywords: Array.isArray(res.data.missingKeywords)
-          ? res.data.missingKeywords
-          : [],
+        missingKeywords: Array.isArray(res.data.missingKeywords) ? res.data.missingKeywords : [],
         summary: res.data.summary || "Analysis complete",
         feedback: res.data.feedback || "No feedback available",
-        searchQuery: res.data.searchQuery || ""
+        searchQuery: res.data.searchQuery || "",
+        scoreBreakdown: res.data.scoreBreakdown || { strengths: [], partial: [], missing: [] },
+        resumeTips: res.data.resumeTips || []
       };
 
       if (parsedResult.matchScore < 1 || parsedResult.matchScore > 100) {
@@ -68,19 +63,15 @@ function App() {
 
       setResult(parsedResult);
 
-      // ============================
-      // STEP 5: SAVE ANALYSIS (ADDED)
-      // ============================
-      const saveRes = await axios.post(
-        `${API_URL}/save-analysis`,
-        parsedResult
-      );
-      setShareLink(
-        `${window.location.origin}${saveRes.data.shareUrl}`
-      );
-      // ============================
+      // 2. Step 5: Save Analysis for Sharing
+      try {
+        const saveRes = await axios.post(`${API_URL}/save-analysis`, parsedResult);
+        setShareLink(`${window.location.origin}${saveRes.data.shareUrl}`);
+      } catch (saveErr) {
+        console.warn("⚠️ Share link generation failed:", saveErr.message);
+      }
 
-      // Trigger Job Search
+      // 3. Trigger Job Search
       if (parsedResult.searchQuery) {
         await fetchJobs(parsedResult.searchQuery);
       } else {
@@ -88,10 +79,7 @@ function App() {
       }
 
     } catch (err) {
-      let errorMsg =
-        err.response?.data?.message ||
-        err.message ||
-        "Server Error";
+      let errorMsg = err.response?.data?.error || err.message || "Server Error";
       setError(`❌ ${errorMsg}`);
     } finally {
       setLoading(false);
@@ -100,10 +88,9 @@ function App() {
 
   const fetchJobs = async (query) => {
     try {
-      const res = await axios.get(
-        `${API_URL}/search-jobs?query=${encodeURIComponent(query)}`,
-        { timeout: 10000 }
-      );
+      const res = await axios.get(`${API_URL}/search-jobs?query=${encodeURIComponent(query)}`, { 
+        timeout: 10000 
+      });
       if (Array.isArray(res.data) && res.data.length > 0) {
         setJobs(res.data);
       } else {
@@ -115,45 +102,19 @@ function App() {
   };
 
   const useMockJobs = (query) => {
-    const cleanTitle =
-      (query || "Developer")
-        .replace(/Search query|Remote|Developer/gi, "")
-        .trim() || "Developer";
+    const cleanTitle = (query || "Developer")
+      .replace(/Search query|Remote|Developer/gi, "")
+      .trim() || "Developer";
 
     const mockJobs = [
-      {
-        id: 101,
-        title: `Senior ${cleanTitle}`,
-        company: "Google (Demo)",
-        location: "Bangalore, India",
-        type: "Full-time",
-        link: "https://google.com/careers",
-        logo: "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg"
-      },
-      {
-        id: 102,
-        title: `${cleanTitle} (Remote)`,
-        company: "Netflix (Demo)",
-        location: "Remote",
-        type: "Contract",
-        link: "https://jobs.netflix.com",
-        logo: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg"
-      },
-      {
-        id: 103,
-        title: `Junior ${cleanTitle}`,
-        company: "Microsoft (Demo)",
-        location: "Hyderabad, India",
-        type: "Hybrid",
-        link: "https://careers.microsoft.com",
-        logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg"
-      }
+      { id: 101, title: `Senior ${cleanTitle}`, company: "Google (Demo)", location: "Bangalore, India", type: "Full-time", link: "https://google.com/careers", logo: "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" },
+      { id: 102, title: `${cleanTitle} (Remote)`, company: "Netflix (Demo)", location: "Remote", type: "Contract", link: "https://jobs.netflix.com", logo: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg" },
+      { id: 103, title: `Junior ${cleanTitle}`, company: "Microsoft (Demo)", location: "Hyderabad, India", type: "Hybrid", link: "https://careers.microsoft.com", logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" }
     ];
-
     setJobs(mockJobs);
   };
 
-  // --- HELPERS ---
+  /* ---------------- HELPERS ---------------- */
 
   const getScoreColor = (score) => {
     if (score >= 80) return "#10b981";
@@ -170,9 +131,7 @@ function App() {
   return (
     <div className="container">
       <header>
-        <div className="logo-container">
-          <span className="logo-icon">🚀</span>
-        </div>
+        <div className="logo-container"><span className="logo-icon">🚀</span></div>
         <h1>JobAlign AI</h1>
         <p className="subtitle">AI-Powered Resume Scorer & Headhunter</p>
         <div className="powered-badge">Powered by Gemini AI ✨</div>
@@ -195,18 +154,10 @@ function App() {
           <h3>Upload Resume</h3>
         </div>
         <div className="file-drop">
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={handleFileChange}
-            id="fileInput"
-            style={{ display: 'none' }}
-          />
+          <input type="file" accept=".pdf" onChange={handleFileChange} id="fileInput" style={{ display: 'none' }} />
           <label htmlFor="fileInput">
             {file ? (
-              <div className="file-success">
-                <span>📄 {file.name}</span>
-              </div>
+              <div className="file-success"><span>📄 {file.name}</span></div>
             ) : (
               <div className="file-prompt">
                 <span className="upload-icon">📂</span>
@@ -218,66 +169,40 @@ function App() {
 
         {error && <div className="error-box">{error}</div>}
 
-        <button
-          className="analyze-btn"
-          onClick={handleUpload}
-          disabled={loading}
-        >
+        <button className="analyze-btn" onClick={handleUpload} disabled={loading}>
           {loading ? "🔄 Analyzing..." : "🚀 Analyze Match"}
         </button>
       </div>
 
       {/* SHARE ANALYSIS (STEP 5) */}
-{shareLink && (
-  <div className="share-box" style={{ marginTop: "1rem" }}>
-    <p style={{ fontSize: "0.9rem", color: "#c7d2fe" }}>
-      🔗 Share this analysis
-    </p>
-    <div style={{ display: "flex", gap: "0.5rem" }}>
-      <input
-        value={shareLink}
-        readOnly
-        style={{
-          flex: 1,
-          padding: "0.5rem",
-          borderRadius: "6px",
-          border: "1px solid #334155",
-          background: "#020617",
-          color: "#e5e7eb",
-        }}
-      />
-      <button
-        onClick={() => navigator.clipboard.writeText(shareLink)}
-        style={{
-          padding: "0.5rem 0.75rem",
-          borderRadius: "6px",
-          background: "#6366f1",
-          color: "#fff",
-          border: "none",
-          cursor: "pointer",
-        }}
-      >
-        Copy
-      </button>
-    </div>
-  </div>
-)}
-
+      {shareLink && (
+        <div className="share-box" style={{ marginTop: "1rem" }}>
+          <p style={{ fontSize: "0.9rem", color: "#c7d2fe" }}>🔗 Share this analysis</p>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input
+              value={shareLink}
+              readOnly
+              style={{ flex: 1, padding: "0.5rem", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#e5e7eb" }}
+            />
+            <button
+              onClick={() => navigator.clipboard.writeText(shareLink)}
+              style={{ padding: "0.5rem 0.75rem", borderRadius: "6px", background: "#6366f1", color: "#fff", border: "none", cursor: "pointer" }}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* RESULTS SECTION */}
       {result && (
         <div className="results-grid">
           <div className="score-card">
             <p className="score-label">MATCH SCORE</p>
-            <h2 style={{ marginTop: '0.5rem', marginBottom: '2rem' }}>
-              {getScoreLabel(result.matchScore)}
-            </h2>
+            <h2 style={{ marginTop: '0.5rem', marginBottom: '2rem' }}>{getScoreLabel(result.matchScore)}</h2>
             <div className="circle-container">
               <svg viewBox="0 0 36 36" className="circular-chart">
-                <path
-                  className="circle-bg"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
+                <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                 <path
                   className="circle"
                   strokeDasharray={`${result.matchScore}, 100`}
@@ -290,6 +215,7 @@ function App() {
           </div>
 
           <div className="details-card">
+            {/* MISSING KEYWORDS (CLEAN BADGES) */}
             <div className="detail-section">
               <div className="detail-header">
                 <span style={{ fontSize: '1.5rem' }}>🔍</span>
@@ -297,32 +223,34 @@ function App() {
               </div>
               <div className="badge-container">
                 {result.missingKeywords.length > 0 ? (
-                  result.missingKeywords.map((kw, i) => (
-                    <span key={i} className="badge">▪ {kw}</span>
-                  ))
-                ) : (
-                  <span style={{ color: '#10b981' }}>✅ None! Perfect Match.</span>
-                )}
+                  result.missingKeywords.map((kw, i) => <span key={i} className="badge">▪ {kw}</span>)
+                ) : <span style={{ color: '#10b981' }}>✅ None! Perfect Match.</span>}
               </div>
             </div>
 
+            {/* ACTIONABLE FEEDBACK */}
             <div className="detail-section">
               <div className="detail-header">
                 <span style={{ fontSize: '1.5rem' }}>💡</span>
                 <h3 className="detail-title">Actionable Feedback</h3>
               </div>
-              <div
-                className="summary-box"
-                style={{
-                  background: 'rgba(99, 102, 241, 0.1)',
-                  borderLeft: '4px solid #8b5cf6'
-                }}
-              >
-                <div style={{ whiteSpace: 'pre-line' }}>
-                  {result.feedback}
-                </div>
+              <div className="summary-box" style={{ background: 'rgba(99, 102, 241, 0.1)', borderLeft: '4px solid #8b5cf6' }}>
+                <div style={{ whiteSpace: 'pre-line' }}>{result.feedback}</div>
               </div>
             </div>
+
+            {/* RESUME IMPROVEMENT TIPS (NEW) */}
+            {result.resumeTips && result.resumeTips.length > 0 && (
+              <div className="detail-section">
+                <div className="detail-header">
+                  <span style={{ fontSize: '1.5rem' }}>📝</span>
+                  <h3 className="detail-title">Resume Improvement Tips</h3>
+                </div>
+                <ul style={{ color: '#cbd5e1', paddingLeft: '1.2rem', marginTop: '0.5rem' }}>
+                  {result.resumeTips.map((tip, i) => <li key={i} style={{ marginBottom: '0.4rem' }}>{tip}</li>)}
+                </ul>
+              </div>
+            )}
 
             {/* RECOMMENDED JOBS */}
             {jobs.length > 0 && (
@@ -331,7 +259,7 @@ function App() {
                   <span style={{ fontSize: '1.5rem' }}>💼</span>
                   <h3 className="detail-title">Recommended Jobs</h3>
                 </div>
-                <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.9rem', marginBottom: '1rem', color: '#94a3b8' }}>
                   AI Search Strategy: <strong>"{result.searchQuery}"</strong>
                 </p>
                 <div className="job-grid">
@@ -339,37 +267,21 @@ function App() {
                     <div key={job.id} className="job-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <h4 className="job-role">{job.title}</h4>
-                        {job.logo && (
-                          <img src={job.logo} alt="logo" style={{ width: '30px' }} />
-                        )}
+                        {job.logo && <img src={job.logo} alt="logo" style={{ width: '30px' }} />}
                       </div>
                       <div className="job-company">
                         <span>🏢 {job.company}</span>
                         <span>📍 {job.location}</span>
                       </div>
-                      <div className="job-tags">
-                        <span className="job-tag">{job.type}</span>
-                      </div>
-                      <a
-                        href={job.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="apply-link"
-                      >
-                        Apply Now ↗
-                      </a>
+                      <div className="job-tags"><span className="job-tag">{job.type}</span></div>
+                      <a href={job.link} target="_blank" rel="noreferrer" className="apply-link">Apply Now ↗</a>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <button
-              className="secondary-btn"
-              onClick={() => window.location.reload()}
-            >
-              ↻ Analyze Another
-            </button>
+            <button className="secondary-btn" onClick={() => window.location.reload()}>↻ Analyze Another</button>
           </div>
         </div>
       )}
