@@ -37,7 +37,7 @@ function App() {
     formData.append('jobDesc', jobDesc);
 
     try {
-      // 1. Analyze Resume
+      // 1. Send for Analysis
       const res = await axios.post(`${API_URL}/analyze`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
@@ -51,13 +51,13 @@ function App() {
 
       setResult(parsedResult);
 
-      // 2. Fix: Point Share Link directly to BACKEND to solve 404
+      // 2. Generate Share Link - Points to API_URL to fix 404
       try {
         const saveRes = await axios.post(`${API_URL}/save-analysis`, parsedResult);
-        // Correcting the link origin to API_URL
+        // Correcting the link to point to Render backend
         setShareLink(`${API_URL}${saveRes.data.shareUrl}`); 
       } catch (saveErr) {
-        console.warn("Share link generation failed.");
+        console.warn("Share logic failed.");
       }
 
       if (parsedResult.searchQuery) await fetchJobs(parsedResult.searchQuery);
@@ -85,12 +85,6 @@ function App() {
       { id: 103, title: `Junior ${cleanTitle}`, company: "Microsoft (Demo)", location: "Hyderabad", type: "Hybrid", link: "https://careers.microsoft.com", logo: "https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" }
     ];
     setJobs(mockJobs);
-  };
-
-  const getScoreColor = (score) => {
-    if (score >= 80) return "#10b981";
-    if (score >= 50) return "#f59e0b";
-    return "#ef4444";
   };
 
   return (
@@ -122,17 +116,17 @@ function App() {
                 <path 
                   className="circle" 
                   strokeDasharray={`${result.matchScore}, 100`} 
-                  stroke={getScoreColor(result.matchScore)} 
+                  stroke={result.matchScore >= 80 ? "#10b981" : "#f59e0b"} 
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
                 />
               </svg>
               <div className="percentage">{result.matchScore}%</div>
             </div>
 
-            {/* Restored Sleek Link Section */}
+            {/* Fixed Share Section - No longer gives 404 */}
             {shareLink && (
               <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results (Public)</p>
+                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results (Public API)</p>
                 <button 
                   onClick={() => {
                     navigator.clipboard.writeText(shareLink);
@@ -140,7 +134,7 @@ function App() {
                   }}
                   style={{ width: '100%', padding: '8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '5px' }}
                 >
-                  Copy Share Link
+                  Copy Link
                 </button>
               </div>
             )}
