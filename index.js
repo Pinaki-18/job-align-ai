@@ -16,7 +16,7 @@ app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* ---------------- STORAGE (Step 5) ---------------- */
+/* ---------------- STORAGE ---------------- */
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "analyses.json");
 
@@ -41,7 +41,7 @@ const analyzeLimiter = rateLimit({
 
 /* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", version: "POLISHED_PRODUCTION" });
+  res.json({ status: "OK", feature: "STEP-5-SAVE-SHARE" });
 });
 
 /* ---------------- MODEL DISCOVERY ---------------- */
@@ -69,24 +69,22 @@ app.post(
       const jobDesc = (req.body.jobDesc || "").trim();
       const modelName = await getWorkingModel(apiKey);
 
-      // FAANG RECRUITER PROMPT
       const prompt = `
-You are an expert Technical Recruiter at a FAANG company. 
-Analyze the provided Resume against the Job Description (JD) with extreme precision.
+You are an expert recruiter.
 
 JOB DESCRIPTION:
 ${jobDesc}
 
-Return your analysis STRICTLY in this format:
+Respond strictly in this format:
 
-SCORE: [Percentage based on technical alignment, 0-100]%
-MISSING: [List only the top 3-5 specific technical skills or tools missing, comma-separated]
-SUMMARY: [A concise, one-sentence evaluation of candidate's seniority and fit]
+SCORE: <0-100>%
+MISSING: <comma separated>
+SUMMARY: <one sentence>
 FEEDBACK:
 - <point>
 - <point>
 - <point>
-SEARCH_QUERY: [An optimized 3-word job title for a search engine]
+SEARCH_QUERY: <job title>
 
 BREAKDOWN:
 STRENGTHS: <comma separated>
@@ -94,7 +92,8 @@ PARTIAL: <comma separated>
 WEAK: <comma separated>
 
 RESUME_TIPS:
-Provide 3 high-level, brutal architectural or technical advice points.
+You MUST always give resume improvement tips.
+
 - <tip>
 - <tip>
 - <tip>
@@ -108,24 +107,26 @@ Provide 3 high-level, brutal architectural or technical advice points.
       const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error("EMPTY_AI_RESPONSE");
 
-      /* -------- FLEXIBLE PARSING (FIXES 50% BUG) -------- */
-      // Using \D* to skip brackets or stars that Gemini might add
-      const matchScore = Number(text.match(/SCORE:\D*(\d{1,3})/i)?.[1]) || 15;
+      /* -------- FIXED PARSING -------- */
+      // Fixes the 50% bug by using \D* to skip any symbols/brackets before the number
+      const matchScore = Number(text.match(/SCORE:\D*(\d{1,3})/i)?.[1]) || 50;
 
-      // Clean missing keywords of junk like "(e.g."
+      // Fixes messy keywords by stripping out "(e.g.", "specific", etc.
       let missingKeywords = [];
-      const missingMatch = text.match(/MISSING:\s*(.+?)(?=\n|SUMMARY:|FEEDBACK:|$)/i);
+      const missingMatch = text.match(/MISSING:\s*(.+?)(?=\n|SUMMARY:|FEEDBACK:|SEARCH_QUERY:|$)/i);
       if (missingMatch) {
         missingKeywords = missingMatch[1]
           .replace(/\(.*?\)|e\.g\.|specific|technologies|tools|experience/gi, '') 
           .split(',')
           .map(s => s.trim())
           .filter(s => s.length > 2) 
-          .slice(0, 5);
+          .slice(0, 6);
       }
 
       const summary = text.match(/SUMMARY:\s*(.+)/i)?.[1]?.trim() || "";
+
       const feedback = text.match(/FEEDBACK:([\s\S]*?)SEARCH_QUERY:/i)?.[1]?.trim() || "";
+
       const searchQuery = text.match(/SEARCH_QUERY:\D*(.+)/i)?.[1]?.trim() || "Software Engineer";
 
       const scoreBreakdown = {
@@ -138,6 +139,14 @@ Provide 3 high-level, brutal architectural or technical advice points.
           ?.split("\n")
           .map(t => t.replace(/^[-*]\s*/, "").trim())
           .filter(Boolean) || [];
+
+      if (resumeTips.length === 0) {
+        resumeTips = [
+          "Add backend projects showing API development",
+          "Mention testing and CI/CD exposure",
+          "Quantify impact in projects",
+        ];
+      }
 
       const result = {
         matchScore,
@@ -157,24 +166,38 @@ Provide 3 high-level, brutal architectural or technical advice points.
   }
 );
 
-/* ---------------- SHARE ANALYSES ---------------- */
+/* ---------------- STEP 5: SAVE ANALYSIS ---------------- */
 app.post("/save-analysis", (req, res) => {
   const analyses = readAnalyses();
   const id = crypto.randomUUID();
-  const record = { id, result: req.body, createdAt: new Date().toISOString() };
+  const record = {
+    id,
+    result: req.body,
+    createdAt: new Date().toISOString(),
+  };
+
   analyses.push(record);
   writeAnalyses(analyses);
-  res.json({ id, shareUrl: `/analysis/${id}` });
+
+  res.json({
+    id,
+    shareUrl: `/analysis/${id}`,
+  });
 });
 
+/* ---------------- STEP 5: GET SHARED ANALYSIS ---------------- */
 app.get("/analysis/:id", (req, res) => {
   const analyses = readAnalyses();
   const found = analyses.find(a => a.id === req.params.id);
-  if (!found) return res.status(404).json({ error: "NOT_FOUND" });
+
+  if (!found) {
+    return res.status(404).json({ error: "NOT_FOUND" });
+  }
+
   res.json(found);
 });
 
 /* ---------------- START ---------------- */
 app.listen(port, "0.0.0.0", () => {
-  console.log("🟢 SERVER RUNNING — 50% BUG FIXED");
+  console.log("🟢 SERVER RUNNING — STEP 5 ENABLED");
 });
