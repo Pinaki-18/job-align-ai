@@ -128,4 +128,82 @@ app.get("/api/analysis/:id", (req, res) => {
   res.json(found);
 });
 
+// Direct share page - returns HTML
+app.get("/share/:id", (req, res) => {
+  const analyses = readAnalyses();
+  const found = analyses.find(a => a.id === req.params.id);
+  
+  if (!found) {
+    return res.status(404).send(`
+      <!DOCTYPE html>
+      <html><head><title>Not Found</title></head>
+      <body style="font-family: Arial; text-align: center; padding: 50px; background: #1a1a2e; color: #fff;">
+        <h1>❌ Analysis Not Found</h1>
+        <p>This shared link may have expired or doesn't exist.</p>
+        <a href="${process.env.FRONTEND_URL || 'https://your-frontend.netlify.app'}" style="color: #6366f1;">← Back to JobAlign AI</a>
+      </body></html>
+    `);
+  }
+
+  const result = found.result;
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>JobAlign AI - Shared Result</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 20px; min-height: 100vh; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 40px; }
+        h1 { font-size: 2.5rem; color: #8b5cf6; margin: 10px 0; }
+        .subtitle { color: #a78bfa; font-size: 1.1rem; }
+        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(139,92,246,0.3); border-radius: 16px; padding: 30px; margin: 20px 0; backdrop-filter: blur(10px); }
+        .score { font-size: 4rem; color: ${result.matchScore >= 80 ? '#10b981' : '#f59e0b'}; font-weight: bold; text-align: center; margin: 20px 0; }
+        .badge { background: rgba(139,92,246,0.2); padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 5px; font-size: 0.9rem; }
+        .feedback { white-space: pre-line; line-height: 1.8; color: #e5e7eb; }
+        .cta-btn { display: block; width: 100%; padding: 15px; background: #6366f1; color: #fff; text-decoration: none; border-radius: 8px; text-align: center; font-weight: 600; margin-top: 20px; }
+        .cta-btn:hover { background: #4f46e5; }
+        h3 { color: #a78bfa; margin-bottom: 15px; font-size: 1.3rem; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <header>
+          <div>🚀</div>
+          <h1>JobAlign AI</h1>
+          <p class="subtitle">Shared Analysis Results</p>
+        </header>
+
+        <div class="card">
+          <h2 style="text-align: center; color: #e5e7eb; margin-bottom: 20px;">
+            ${result.matchScore >= 80 ? '🎯 Excellent Match!' : '⚖️ Needs Improvement'}
+          </h2>
+          <div class="score">${result.matchScore}%</div>
+        </div>
+
+        <div class="card">
+          <h3>🔍 Missing Keywords</h3>
+          <div>
+            ${result.missingKeywords && result.missingKeywords.length > 0 
+              ? result.missingKeywords.map(kw => `<span class="badge">▪ ${kw}</span>`).join('') 
+              : '<span style="color: #10b981;">✅ Perfect Match</span>'}
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>💡 Actionable Feedback</h3>
+          <div class="feedback">${result.feedback || result.summary || 'No feedback available'}</div>
+        </div>
+
+        <a href="${process.env.FRONTEND_URL || 'https://your-frontend.netlify.app'}" class="cta-btn">
+          ✨ Analyze Your Own Resume
+        </a>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
 app.listen(port, "0.0.0.0", () => console.log("🟢 PROD SERVER LIVE"));
