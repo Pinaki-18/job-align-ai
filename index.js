@@ -109,17 +109,19 @@ RESUME_TIPS:
   }
 });
 
-/* ---------------- STEP 5: SHARE LOGIC ---------------- */
+/* ---------------- SHARE LOGIC (FIXED) ---------------- */
 app.post("/save-analysis", (req, res) => {
   const analyses = readAnalyses();
   const id = crypto.randomUUID();
   const record = { id, result: req.body, createdAt: new Date().toISOString() };
   analyses.push(record);
   writeAnalyses(analyses);
-  res.json({ id, shareUrl: `/analysis/${id}` });
+  // Return the ID - frontend will construct full URL
+  res.json({ id });
 });
 
-app.get("/analysis/:id", (req, res) => {
+// API endpoint - returns JSON data
+app.get("/api/analysis/:id", (req, res) => {
   const analyses = readAnalyses();
   const found = analyses.find(a => a.id === req.params.id);
   if (!found) return res.status(404).json({ error: "NOT_FOUND" });

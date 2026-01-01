@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -12,6 +12,31 @@ function App() {
   const [error, setError] = useState("");
   const [jobs, setJobs] = useState([]);
   const [shareLink, setShareLink] = useState(null);
+  const [viewMode, setViewMode] = useState("upload"); // "upload" or "shared"
+
+  // Check if URL has /share/:id parameter on mount
+  useEffect(() => {
+    const path = window.location.pathname;
+    const shareMatch = path.match(/\/share\/([a-f0-9-]+)/i);
+    
+    if (shareMatch) {
+      const sharedId = shareMatch[1];
+      loadSharedAnalysis(sharedId);
+    }
+  }, []);
+
+  const loadSharedAnalysis = async (id) => {
+    setLoading(true);
+    setViewMode("shared");
+    try {
+      const res = await axios.get(`${API_URL}/api/analysis/${id}`);
+      setResult(res.data.result);
+    } catch (err) {
+      setError("❌ Shared analysis not found or expired.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -51,11 +76,11 @@ function App() {
 
       setResult(parsedResult);
 
-      // 2. Generate Share Link - Points to API_URL to fix 404
+      // 2. Generate Share Link - FIXED to use /share/:id route
       try {
         const saveRes = await axios.post(`${API_URL}/save-analysis`, parsedResult);
-        // Correcting the link to point to Render backend
-        setShareLink(`${API_URL}${saveRes.data.shareUrl}`); 
+        const frontendUrl = window.location.origin; // Gets your Netlify/Vercel URL
+        setShareLink(`${frontendUrl}/share/${saveRes.data.id}`);
       } catch (saveErr) {
         console.warn("Share logic failed.");
       }
@@ -87,6 +112,69 @@ function App() {
     setJobs(mockJobs);
   };
 
+  // Show shared view if in shared mode
+  if (viewMode === "shared") {
+    return (
+      <div className="container">
+        <header>
+          <div className="logo-container"><span className="logo-icon">🚀</span></div>
+          <h1>JobAlign AI</h1>
+          <p className="subtitle">Shared Analysis Results</p>
+        </header>
+
+        {loading && <div className="loading">🔄 Loading shared analysis...</div>}
+        {error && <div className="error-box">{error}</div>}
+
+        {result && (
+          <div className="results-grid">
+            <div className="score-card">
+              <h2>{result.matchScore >= 80 ? "Excellent Match! 🎯" : "Needs Improvement ⚖️"}</h2>
+              
+              <div className="circle-container">
+                <svg viewBox="0 0 36 36" className="circular-chart">
+                  <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path 
+                    className="circle" 
+                    strokeDasharray={`${result.matchScore}, 100`} 
+                    stroke={result.matchScore >= 80 ? "#10b981" : "#f59e0b"} 
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                  />
+                </svg>
+                <div className="percentage">{result.matchScore}%</div>
+              </div>
+
+              <button 
+                onClick={() => {
+                  setViewMode("upload");
+                  window.history.pushState({}, '', '/');
+                }}
+                style={{ width: '100%', padding: '12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', marginTop: '20px', fontWeight: '600' }}
+              >
+                ✨ Analyze Your Own Resume
+              </button>
+            </div>
+
+            <div className="details-card">
+              <div className="detail-section">
+                <h3>🔍 Missing Keywords</h3>
+                <div className="badge-container">
+                  {result.missingKeywords.length > 0 ? result.missingKeywords.map((kw, i) => (
+                    <span key={i} className="badge">▪ {kw}</span>
+                  )) : "✅ Perfect Match"}
+                </div>
+              </div>
+              <div className="detail-section">
+                <h3>💡 Actionable Feedback</h3>
+                <div className="summary-box" style={{ whiteSpace: 'pre-line' }}>{result.feedback}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Normal upload view
   return (
     <div className="container">
       <header>
@@ -123,14 +211,14 @@ function App() {
               <div className="percentage">{result.matchScore}%</div>
             </div>
 
-            {/* Fixed Share Section - No longer gives 404 */}
+            {/* FIXED Share Section */}
             {shareLink && (
               <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results (Public API)</p>
+                <p style={{ fontSize: '0.8rem', color: '#8b5cf6' }}>🔗 Share Results</p>
                 <button 
                   onClick={() => {
                     navigator.clipboard.writeText(shareLink);
-                    alert("Link copied to clipboard!");
+                    alert("✅ Link copied! Share it with anyone.");
                   }}
                   style={{ width: '100%', padding: '8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '5px' }}
                 >
